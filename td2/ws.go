@@ -417,6 +417,9 @@ func NewClient(u string, allowInsecure bool) (*TmConn, error) {
 		return nil, errors.New("allowInsecure must be true if protocol is not using TLS")
 	}
 
+	dialer := &websocket.Dialer{
+		HandshakeTimeout: 10 * time.Second,
+	}
 	conn := &websocket.Conn{}
 
 	switch {
@@ -428,7 +431,7 @@ func NewClient(u string, allowInsecure bool) (*TmConn, error) {
 	// case allowInsecure && endpoint.Scheme == "wss":
 
 	default:
-		conn, _, err = websocket.DefaultDialer.Dial(endpoint.String(), nil)
+		conn, _, err = dialer.Dial(endpoint.String(), nil)
 		if err != nil {
 			return nil, fmt.Errorf("could not dial ws client to %s: %s", endpoint.String(), err.Error())
 		}

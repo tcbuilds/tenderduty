@@ -364,7 +364,7 @@
       background: var(--bg-secondary);
       border: 1px solid var(--border-subtle);
       border-radius: 6px;
-      overflow: hidden;
+      overflow: visible;
     }
 
     .table-header {
@@ -554,13 +554,11 @@
       height: 18px;
     }
 
-    /* Custom tooltip */
-    .alert-icon.has-tooltip::after {
-      content: attr(data-tooltip);
-      position: absolute;
-      left: 50%;
-      bottom: 100%;
-      transform: translateX(-50%);
+    /* Tooltip is rendered via JavaScript (appended to <body>) to escape overflow clipping.
+       See the tooltip initialization script at the bottom of the file. */
+    .td-tooltip {
+      position: fixed;
+      z-index: 10000;
       background: var(--bg-elevated);
       border: 1px solid var(--border-strong);
       color: var(--text-primary);
@@ -571,20 +569,38 @@
       white-space: pre-line;
       max-width: 350px;
       width: max-content;
-      z-index: 100;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      text-align: left;
+      line-height: 1.4;
+      pointer-events: none;
       opacity: 0;
       visibility: hidden;
       transition: opacity 0.15s ease, visibility 0.15s ease;
-      pointer-events: none;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-      margin-bottom: 8px;
-      text-align: left;
-      line-height: 1.4;
     }
 
-    .alert-icon.has-tooltip:hover::after {
+    .td-tooltip.visible {
       opacity: 1;
       visibility: visible;
+    }
+
+    .td-tooltip::after {
+      content: '';
+      position: absolute;
+      left: var(--arrow-left, 50%);
+      transform: translateX(-50%);
+      border: 6px solid transparent;
+    }
+
+    /* Arrow pointing down (tooltip is above the icon) */
+    .td-tooltip.arrow-down::after {
+      top: 100%;
+      border-top-color: var(--border-strong);
+    }
+
+    /* Arrow pointing up (tooltip is below the icon) */
+    .td-tooltip.arrow-up::after {
+      bottom: 100%;
+      border-bottom-color: var(--border-strong);
     }
 
     /* Node status */
@@ -1019,6 +1035,104 @@
         closeModal();
       }
     });
+  </script>
+
+  <script>
+    // JavaScript tooltip system for alert icons.
+    // Tooltips are appended directly to <body> so they are never clipped
+    // by parent overflow:hidden or overflow:auto containers.
+    (function initTooltip() {
+      var ARROW_SIZE = 6;
+      var GAP = 4;
+
+      var tooltipElement = document.createElement('div');
+      tooltipElement.className = 'td-tooltip';
+      tooltipElement.setAttribute('role', 'tooltip');
+      document.body.appendChild(tooltipElement);
+
+      var activeTarget = null;
+
+      function showTooltip(target) {
+        var text = target.getAttribute('data-tooltip');
+        if (!text) {
+          return;
+        }
+
+        activeTarget = target;
+
+        // Decode HTML entities that status.js encodes for the attribute
+        tooltipElement.textContent = text.replace(/&#10;/g, '\n');
+
+        // Position: make it visible off-screen first to measure
+        tooltipElement.classList.remove('arrow-down', 'arrow-up');
+        tooltipElement.style.left = '-9999px';
+        tooltipElement.style.top = '-9999px';
+        tooltipElement.classList.add('visible');
+
+        var iconRect = target.getBoundingClientRect();
+        var tipRect = tooltipElement.getBoundingClientRect();
+        var viewportWidth = window.innerWidth;
+        var viewportHeight = window.innerHeight;
+
+        // Try to position above the icon
+        var top = iconRect.top - tipRect.height - ARROW_SIZE - GAP;
+        var positionAbove = true;
+
+        // If it would go off the top of the viewport, position below instead
+        if (top < 0) {
+          top = iconRect.bottom + ARROW_SIZE + GAP;
+          positionAbove = false;
+        }
+
+        // If it would also go off the bottom, just clamp to top
+        if (!positionAbove && top + tipRect.height > viewportHeight) {
+          top = Math.max(0, viewportHeight - tipRect.height - GAP);
+        }
+
+        // Center horizontally on the icon
+        var left = iconRect.left + (iconRect.width / 2) - (tipRect.width / 2);
+
+        // Clamp to viewport edges with a small margin
+        var horizontalMargin = 8;
+        if (left < horizontalMargin) {
+          left = horizontalMargin;
+        } else if (left + tipRect.width > viewportWidth - horizontalMargin) {
+          left = viewportWidth - tipRect.width - horizontalMargin;
+        }
+
+        tooltipElement.style.left = left + 'px';
+        tooltipElement.style.top = top + 'px';
+        tooltipElement.classList.add(positionAbove ? 'arrow-down' : 'arrow-up');
+
+        // Adjust arrow horizontal position when tooltip is clamped
+        var arrowLeft = iconRect.left + (iconRect.width / 2) - left;
+        arrowLeft = Math.max(ARROW_SIZE, Math.min(arrowLeft, tipRect.width - ARROW_SIZE));
+        tooltipElement.style.setProperty('--arrow-left', arrowLeft + 'px');
+      }
+
+      function hideTooltip() {
+        tooltipElement.classList.remove('visible', 'arrow-down', 'arrow-up');
+        activeTarget = null;
+      }
+
+      // Use event delegation on the document so dynamically added icons work
+      document.addEventListener('mouseenter', function(e) {
+        var target = e.target.closest('.alert-icon.has-tooltip');
+        if (target) {
+          showTooltip(target);
+        }
+      }, true);
+
+      document.addEventListener('mouseleave', function(e) {
+        var target = e.target.closest('.alert-icon.has-tooltip');
+        if (target && target === activeTarget) {
+          hideTooltip();
+        }
+      }, true);
+
+      // Also hide on scroll so the tooltip does not float in a stale position
+      document.addEventListener('scroll', hideTooltip, true);
+    })();
   </script>
 </body>
 </html>

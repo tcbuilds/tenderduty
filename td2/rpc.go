@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"sync"
 	"time"
 
 	dash "github.com/blockpane/tenderduty/v2/td2/dashboard"
@@ -145,62 +146,16 @@ func (cc *ChainConfig) monitorHealth(ctx context.Context, chainName string) {
 			return
 
 		case <-tick.C:
-			var err error
+			var wg sync.WaitGroup
 			for _, node := range cc.Nodes {
+				wg.Add(1)
 				go func(node *NodeConfig) {
-					alert := func(msg string) {
-						node.lastMsg = fmt.Sprintf("%-12s node %s is %s", chainName, node.Url, msg)
-						if !node.AlertIfDown {
-							// even if we aren't alerting, we want to display the status in the dashboard.
-							node.down = true
-							return
-						}
-						if !node.down {
-							node.down = true
-							node.downSince = time.Now()
-						}
-						if td.Prom {
-							td.statsChan <- cc.mkUpdate(metricNodeDownSeconds, time.Since(node.downSince).Seconds(), node.Url)
-						}
-						l("⚠️ " + node.lastMsg)
-					}
-					c, e := rpchttp.New(node.Url, "/websocket")
-					if e != nil {
-						alert(e.Error())
-						return
-					}
-					cwt, cancel := context.WithTimeout(context.Background(), nodeTimeout)
-					status, e := c.Status(cwt)
-					cancel()
-					if e != nil {
-						alert("down")
-						return
-					}
-					if status.NodeInfo.Network != cc.ChainId {
-						alert("on the wrong network")
-						return
-					}
-					if status.SyncInfo.CatchingUp {
-						alert("not synced")
-						node.syncing = true
-						return
-					}
-
-					// Node is healthy, clear the alert state
-					if node.down {
-						node.lastMsg = ""
-						node.wasDown = true
-					}
-					td.statsChan <- cc.mkUpdate(metricNodeDownSeconds, 0, node.Url)
-					node.down = false
-					node.syncing = false
-					node.downSince = time.Unix(0, 0)
-					cc.mtx.Lock()
-					cc.noNodes = false
-					cc.mtx.Unlock()
-					l(fmt.Sprintf("🟢 %-12s node %s is healthy", chainName, node.Url))
+					defer wg.Done()
+					cc.checkNodeHealth(chainName, node)
 				}(node)
 			}
+			wg.Wait()
+			cc.sendHealthUpdate()
 
 			cc.mtx.RLock()
 			needsRpc = cc.client == nil
@@ -211,23 +166,114 @@ func (cc *ChainConfig) monitorHealth(ctx context.Context, chainName string) {
 					l("💥", cc.ChainId, e)
 				}
 			}
-			if cc.valInfo != nil {
-				cc.lastValInfo = &ValInfo{
-					Moniker:    cc.valInfo.Moniker,
-					Bonded:     cc.valInfo.Bonded,
-					Jailed:     cc.valInfo.Jailed,
-					Tombstoned: cc.valInfo.Tombstoned,
-					Missed:     cc.valInfo.Missed,
-					Window:     cc.valInfo.Window,
-					Conspub:    cc.valInfo.Conspub,
-					Valcons:    cc.valInfo.Valcons,
-				}
-			}
-			err = cc.GetValInfo(false)
-			if err != nil {
-				l("❓ refreshing signing info for", cc.ValAddress, err)
-			}
+			cc.refreshValInfo()
 		}
+	}
+}
+
+// checkNodeHealth checks a single node's RPC status and updates its health state.
+func (cc *ChainConfig) checkNodeHealth(chainName string, node *NodeConfig) {
+	alert := func(msg string) {
+		node.lastMsg = fmt.Sprintf("%-12s node %s is %s", chainName, node.Url, msg)
+		if !node.AlertIfDown {
+			node.down = true
+			return
+		}
+		if !node.down {
+			node.down = true
+			node.downSince = time.Now()
+		}
+		if td.Prom {
+			td.statsChan <- cc.mkUpdate(metricNodeDownSeconds, time.Since(node.downSince).Seconds(), node.Url)
+		}
+		l("⚠️ " + node.lastMsg)
+	}
+	c, e := rpchttp.New(node.Url, "/websocket")
+	if e != nil {
+		alert(e.Error())
+		return
+	}
+	cwt, cancel := context.WithTimeout(context.Background(), nodeTimeout)
+	status, e := c.Status(cwt)
+	cancel()
+	if e != nil {
+		alert("down")
+		return
+	}
+	if status.NodeInfo.Network != cc.ChainId {
+		alert("on the wrong network")
+		return
+	}
+	if status.SyncInfo.CatchingUp {
+		alert("not synced")
+		node.syncing = true
+		return
+	}
+	if node.down {
+		node.lastMsg = ""
+		node.wasDown = true
+	}
+	td.statsChan <- cc.mkUpdate(metricNodeDownSeconds, 0, node.Url)
+	node.down = false
+	node.syncing = false
+	node.downSince = time.Unix(0, 0)
+	cc.mtx.Lock()
+	cc.noNodes = false
+	cc.mtx.Unlock()
+	l(fmt.Sprintf("🟢 %-12s node %s is healthy", chainName, node.Url))
+}
+
+// sendHealthUpdate counts healthy nodes and sends a status update to the dashboard.
+func (cc *ChainConfig) sendHealthUpdate() {
+	if !td.EnableDash {
+		return
+	}
+	if cc.valInfo == nil {
+		return
+	}
+	healthyNodes := 0
+	for _, node := range cc.Nodes {
+		if !node.down {
+			healthyNodes++
+		}
+	}
+	cc.activeAlerts = alarms.getCount(cc.name)
+	td.updateChan <- &dash.ChainStatus{
+		MsgType:      "status",
+		Name:         cc.name,
+		ChainId:      cc.ChainId,
+		Moniker:      cc.valInfo.Moniker,
+		Bonded:       cc.valInfo.Bonded,
+		Jailed:       cc.valInfo.Jailed,
+		Tombstoned:   cc.valInfo.Tombstoned,
+		Missed:       cc.valInfo.Missed,
+		Window:       cc.valInfo.Window,
+		Nodes:        len(cc.Nodes),
+		HealthyNodes: healthyNodes,
+		ActiveAlerts: cc.activeAlerts,
+		Height:       cc.lastBlockNum,
+		LastError:    cc.lastError,
+		Blocks:       cc.blocksResults,
+	}
+}
+
+// refreshValInfo saves the current validator info and fetches updated data.
+func (cc *ChainConfig) refreshValInfo() {
+	if cc.valInfo != nil {
+		cc.lastValInfo = &ValInfo{
+			Moniker:    cc.valInfo.Moniker,
+			Bonded:     cc.valInfo.Bonded,
+			Jailed:     cc.valInfo.Jailed,
+			Tombstoned: cc.valInfo.Tombstoned,
+			Missed:     cc.valInfo.Missed,
+			Window:     cc.valInfo.Window,
+			Conspub:    cc.valInfo.Conspub,
+			Valcons:    cc.valInfo.Valcons,
+		}
+	}
+	err := cc.GetValInfo(false)
+	if err != nil {
+		l("❓ refreshing signing info for", cc.ValAddress, err)
 	}
 }
 

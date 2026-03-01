@@ -100,20 +100,34 @@ func Run(configFile, stateFile, chainConfigDirectory string, password *string) e
 			}()
 
 			// websocket subscription and occasional validator info refreshes
+			const (
+				initialBackoff = 5 * time.Second
+				maxBackoff     = 5 * time.Minute
+				stableRunTime  = 30 * time.Second
+			)
+			backoff := initialBackoff
 			for {
 				e := cc.newRpc()
 				if e != nil {
 					l(cc.ChainId, e)
-					time.Sleep(5 * time.Second)
+					l(fmt.Sprintf("⏳ %s retrying in %s", cc.ChainId, backoff))
+					time.Sleep(backoff)
+					backoff = nextBackoff(backoff, maxBackoff)
 					continue
 				}
 				e = cc.GetValInfo(true)
 				if e != nil {
 					l("🛑", cc.ChainId, e)
 				}
+				wsStart := time.Now()
 				cc.WsRun()
+				if time.Since(wsStart) > stableRunTime {
+					backoff = initialBackoff
+				}
 				l(cc.ChainId, "🌀 websocket exited! Restarting monitoring")
-				time.Sleep(5 * time.Second)
+				l(fmt.Sprintf("⏳ %s retrying in %s", cc.ChainId, backoff))
+				time.Sleep(backoff)
+				backoff = nextBackoff(backoff, maxBackoff)
 			}
 		}(cc, k)
 	}
@@ -126,6 +140,15 @@ func Run(configFile, stateFile, chainConfigDirectory string, password *string) e
 	<-saved
 
 	return err
+}
+
+// nextBackoff doubles the current backoff duration, capping at max.
+func nextBackoff(current, max time.Duration) time.Duration {
+	next := current * 2
+	if next > max {
+		return max
+	}
+	return next
 }
 
 func saveOnExit(stateFile string, saved chan interface{}) {
