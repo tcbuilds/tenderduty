@@ -231,8 +231,94 @@
       background: var(--text-muted);
     }
 
-    #canvas {
-      display: block;
+    /* Block grid */
+    .block-grid {
+      display: inline-block;
+    }
+
+    .block-row {
+      display: flex;
+      align-items: center;
+      border-bottom: 2px solid rgb(51, 51, 51);
+    }
+
+    .block-row:last-child {
+      border-bottom: none;
+    }
+
+    .block-row__label {
+      font-family: var(--font-display);
+      font-size: 13px;
+      color: var(--text-secondary);
+      padding-right: var(--space-2);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .block-row__cells {
+      display: flex;
+      flex-shrink: 0;
+    }
+
+    .block-cell {
+      width: 9px;
+      height: 24px;
+      flex-shrink: 0;
+    }
+
+    /* Block state colors */
+    .block-proposed {
+      background: linear-gradient(to right, rgb(123,255,66), rgb(240,255,128) 30%, rgb(169,250,149) 80%);
+    }
+
+    .block-signed {
+      background: linear-gradient(to right, rgba(0,0,0,0.4), rgba(0,0,0,0.4) 90%, rgb(186,186,186));
+    }
+
+    .block-signed--alt {
+      background: linear-gradient(to right, rgba(0,0,0,0.1), rgba(0,0,0,0.1) 90%, rgb(186,186,186));
+    }
+
+    .block-precommit {
+      background: linear-gradient(to right, #85c0f9, #85c0f9 80%, #0b2641);
+    }
+
+    .block-prevote {
+      background: linear-gradient(to right, #381a34, #d06ec7 20%, #d06ec7);
+    }
+
+    .block-missed {
+      background: linear-gradient(to right, #c15600, #c15600);
+      position: relative;
+    }
+
+    .block-missed::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 25%;
+      width: 50%;
+      height: 0;
+      border-top: 2px solid white;
+    }
+
+    .block-nodata {
+      background: rgba(127, 127, 127, 0.3);
+    }
+
+    /* Light mode signed block adjustments */
+    body.light-mode .block-signed {
+      background: linear-gradient(to right, rgba(0,0,0,0.2), rgba(0,0,0,0.2) 90%, rgb(186,186,186));
+    }
+
+    body.light-mode .block-signed--alt {
+      background: linear-gradient(to right, rgba(0,0,0,0.05), rgba(0,0,0,0.05) 90%, rgb(186,186,186));
+    }
+
+    body.light-mode .block-row {
+      border-bottom-color: rgba(0, 0, 0, 0.12);
     }
 
     /* Legend */
@@ -244,8 +330,29 @@
       border-top: 1px solid var(--border-subtle);
     }
 
-    #legend {
-      display: block;
+    .legend-items {
+      display: flex;
+      align-items: center;
+      gap: var(--space-5);
+      flex-wrap: wrap;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+
+    .legend-swatch {
+      width: 9px;
+      height: 24px;
+      flex-shrink: 0;
+      border-radius: 1px;
+    }
+
+    .legend-text {
+      font-size: 14px;
+      color: grey;
     }
 
     /* Status table section */
@@ -810,12 +917,10 @@
         <span class="canvas-header__title">Block Signing History</span>
       </div>
       <div class="canvas-container" id="canvasDiv">
-        <div style="width: 4835px;">
-          <canvas id="canvas" height="20" width="4735"></canvas>
-        </div>
+        <div class="block-grid" id="blockGrid"></div>
       </div>
       <div class="legend-container" id="legendContainer">
-        <canvas id="legend" height="32" width="700" aria-label="Legend for block states"></canvas>
+        <div class="legend-items" id="legendItems" aria-label="Legend for block states"></div>
       </div>
     </section>
 

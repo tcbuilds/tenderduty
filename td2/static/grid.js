@@ -1,210 +1,161 @@
-const h = 24
-const w = 9
-const textMax = 115
-const textW = 120
-let gridH = h
-let gridW = w
-let gridTextMax = textMax
-let gridTextW = textW
-let scale = 1
-let textColor = "#b0b0b0"
+const BLOCK_WIDTH = 9
+const BLOCK_HEIGHT = 24
+const LABEL_WIDTH = 120
 
-let signColorAlpha = 0.4 // alpha set in loop
 let isDark = true
+
+// Cache previous block states to avoid unnecessary DOM updates
+let previousStates = null
 
 function lightMode() {
     isDark = !isDark
     if (isDark) {
-        textColor = "#b0b0b0"
-        signColorAlpha = 0.4
         document.body.classList.remove('light-mode')
     } else {
-        textColor = "#3f3f3f"
-        signColorAlpha = 0.2
         document.body.classList.add('light-mode')
     }
-    // Redraw with new colors
-    legend()
 }
 
-function fix_dpi(id) {
-    let canvas = document.getElementById(id),
-        dpi = window.devicePixelRatio;
-    gridH = h * dpi.valueOf()
-    gridW = w * dpi.valueOf()
-    gridTextMax = textMax * dpi.valueOf()
-    gridTextW = textW * dpi.valueOf()
-    let style = {
-        height() {
-            return +getComputedStyle(canvas).getPropertyValue('height').slice(0,-2);
-        },
-        width() {
-            return +getComputedStyle(canvas).getPropertyValue('width').slice(0,-2);
-        }
+function getBlockClass(state, rowIndex) {
+    switch (state) {
+        case 4:
+            return 'block-proposed'
+        case 3:
+            return rowIndex % 2 === 0 ? 'block-signed' : 'block-signed block-signed--alt'
+        case 2:
+            return 'block-precommit'
+        case 1:
+            return 'block-prevote'
+        case 0:
+            return 'block-missed'
+        default:
+            return 'block-nodata'
     }
-    canvas.setAttribute('width', style.width() * dpi);
-    canvas.setAttribute('height', style.height() * dpi);
-    scale = dpi.valueOf()
-}
-
-function legend() {
-    const l = document.getElementById("legend")
-    l.height = scale * h * 1.2
-    const ctx = l.getContext('2d')
-
-    let offset = textW
-    let grad = ctx.createLinearGradient(offset, 0, offset+gridW, gridH)
-    grad.addColorStop(0, 'rgb(123,255,66)');
-    grad.addColorStop(0.3, 'rgb(240,255,128)');
-    grad.addColorStop(0.8, 'rgb(169,250,149)');
-    ctx.fillStyle = grad
-    ctx.fillRect(offset, 0, gridW, gridH)
-    ctx.font = `${scale * 14}px sans-serif`
-    ctx.fillStyle = 'grey'
-    offset += gridW + gridW/2
-    ctx.fillText("proposer",offset, gridH/1.2)
-
-    offset += 65 * scale
-    grad = ctx.createLinearGradient(offset, 0, offset+gridW, gridH)
-    grad.addColorStop(0, 'rgba(0,0,0,0.2)');
-    ctx.fillStyle = grad
-    ctx.fillRect(offset, 0, gridW, gridH)
-    ctx.fillStyle = 'grey'
-    offset += gridW + gridW/2
-    ctx.fillText("signed",offset, gridH/1.2)
-
-    offset += 50 * scale
-    grad = ctx.createLinearGradient(offset, 0, offset+gridW, gridH)
-    grad.addColorStop(0, '#85c0f9');
-    grad.addColorStop(0.7, '#85c0f9');
-    grad.addColorStop(1, '#0b2641');
-    ctx.fillStyle = grad
-    ctx.fillRect(offset, 0, gridW, gridH)
-    offset += gridW + gridW/2
-    ctx.fillStyle = 'grey'
-    ctx.fillText("miss/precommit",offset, gridH/1.2)
-
-    offset += 110 * scale
-    grad = ctx.createLinearGradient(offset, 0, offset+gridW, gridH)
-    grad.addColorStop(0, '#381a34');
-    grad.addColorStop(0.2, '#d06ec7');
-    grad.addColorStop(1, '#d06ec7');
-    ctx.fillStyle = grad
-    ctx.fillRect(offset, 0, gridW, gridH)
-    offset += gridW + gridW/2
-    ctx.fillStyle = 'grey'
-    ctx.fillText("miss/prevote", offset, gridH/1.2)
-
-    offset += 90 * scale
-    grad = ctx.createLinearGradient(offset, 0, offset+gridW, gridH)
-    grad.addColorStop(0, '#8e4b26');
-    grad.addColorStop(0.4, 'darkorange');
-    ctx.fillStyle = grad
-    ctx.fillRect(offset, 0, gridW, gridH)
-    ctx.beginPath();
-    ctx.moveTo(offset + 1, gridH-2-gridH/2);
-    ctx.lineTo(offset + 4 + gridW / 4, gridH-1-gridH/2);
-    ctx.closePath();
-    ctx.strokeStyle = 'white'
-    ctx.stroke();
-    offset += gridW + gridW/2
-    ctx.fillStyle = 'grey'
-    ctx.fillText("missed", offset, gridH/1.2)
-
-    offset += 59 * scale
-    grad = ctx.createLinearGradient(offset, 0, offset+gridW, gridH)
-    grad.addColorStop(0, 'rgba(127,127,127,0.3)');
-    ctx.fillStyle = grad
-    ctx.fillRect(offset, 0, gridW, gridH)
-    offset += gridW + gridW/2
-    ctx.fillStyle = 'grey'
-    ctx.fillText("no data", offset, gridH/1.2)
 }
 
 function drawSeries(multiStates) {
-    const canvas = document.getElementById("canvas")
     if (!multiStates.Status || multiStates.Status.length === 0) return
-    // Compute logical (pre-DPI) dimensions from base constants and data
+
+    const container = document.getElementById('blockGrid')
+    if (!container) return
+
+    const numChains = multiStates.Status.length
     const numBlocks = multiStates.Status[0].blocks.length
-    const logicalWidth = (numBlocks * w) + textW
-    const logicalHeight = ((12 * h * multiStates.Status.length) / 10) + 30
-    // Reset canvas to logical size before fix_dpi scales it
-    canvas.width = logicalWidth
-    canvas.height = logicalHeight
-    fix_dpi("canvas")
-    if (canvas.getContext) {
-        const ctx = canvas.getContext('2d')
-        if (!ctx) return
-        ctx.font = `${scale * 16}px sans-serif`
-        ctx.fillStyle = textColor
 
-        let crossThrough = false
-        for (let j = 0; j < multiStates.Status.length; j++) {
+    // Check if we need to rebuild the entire grid or just update cells
+    const needsRebuild = !previousStates
+        || previousStates.length !== numChains
+        || previousStates[0].blocks.length !== numBlocks
 
-            ctx.fillStyle = textColor
-            ctx.fillText(multiStates.Status[j].name, 5, (j*gridH)+(gridH*2)-6, gridTextMax)
+    if (needsRebuild) {
+        buildGrid(container, multiStates, numChains, numBlocks)
+    } else {
+        updateGrid(container, multiStates, numChains, numBlocks)
+    }
 
-            for (let i = 0; i < multiStates.Status[j].blocks.length; i++) {
-                crossThrough = false
-                const grad = ctx.createLinearGradient((i*gridW)+gridTextW, (gridH*j), (i * gridW) + gridW +gridTextW, (gridH*j))
-                switch (multiStates.Status[j].blocks[i]) {
-                    case 4: // proposed
-                        grad.addColorStop(0, 'rgb(123,255,66)');
-                        grad.addColorStop(0.3, 'rgb(240,255,128)');
-                        grad.addColorStop(0.8, 'rgb(169,250,149)');
-                        break
-                    case 3: // signed
-                        if (j % 2 === 0) {
-                            grad.addColorStop(0, `rgba(0,0,0,${signColorAlpha})`);
-                            grad.addColorStop(0.9, `rgba(0,0,0,${signColorAlpha})`);
-                        } else {
-                            grad.addColorStop(0, `rgba(0,0,0,${signColorAlpha-0.3})`);
-                            grad.addColorStop(0.9, `rgba(0,0,0,${signColorAlpha-0.3})`);
-                        }
-                        grad.addColorStop(1, 'rgb(186,186,186)');
-                        break
-                    case 2: // precommit not included
-                        grad.addColorStop(0, '#85c0f9');
-                        grad.addColorStop(0.8, '#85c0f9');
-                        grad.addColorStop(1, '#0b2641');
-                        break
-                    case 1: // prevote not included
-                        grad.addColorStop(0, '#381a34');
-                        grad.addColorStop(0.2, '#d06ec7');
-                        grad.addColorStop(1, '#d06ec7');
-                        break
-                    case 0: // missed
-                        grad.addColorStop(0, '#c15600');
-                        crossThrough = true
-                        break
-                    default:
-                        grad.addColorStop(0, 'rgba(127,127,127,0.3)');
-                }
-                ctx.clearRect((i*gridW)+gridTextW, gridH+(gridH*j), gridW, gridH)
-                ctx.fillStyle = grad
-                ctx.fillRect((i*gridW)+gridTextW, gridH+(gridH*j), gridW, gridH)
+    // Store current states for diff comparison on next update
+    previousStates = multiStates.Status.map(function(chain) {
+        return {
+            name: chain.name,
+            blocks: chain.blocks.slice()
+        }
+    })
+}
 
-                // line between rows
-                if (i > 0) {
-                    ctx.beginPath();
-                    ctx.moveTo((i * gridW) - gridW + gridTextW, 2 * gridH + (gridH * j) - 0.5)
-                    ctx.lineTo((i * gridW) + gridTextW, 2 * gridH + (gridH * j) - 0.5);
-                    ctx.closePath();
-                    ctx.strokeStyle = 'rgb(51,51,51)'
-                    ctx.lineWidth = 5
-                    ctx.stroke();
-                }
+function buildGrid(container, multiStates, numChains, numBlocks) {
+    const fragment = document.createDocumentFragment()
+    const gridWidth = (numBlocks * BLOCK_WIDTH) + LABEL_WIDTH
 
-                // visual differentiation for missed blocks
-                if (crossThrough) {
-                    ctx.beginPath();
-                    ctx.moveTo((i * gridW) + gridTextW + 1 + gridW / 4, (gridH*j) + (gridH * 2) - gridH / 2);
-                    ctx.lineTo((i * gridW) + gridTextW + gridW - (gridW / 4) - 1, (gridH*j) + (gridH * 2) - gridH / 2);
-                    ctx.closePath();
-                    ctx.strokeStyle = 'white'
-                    ctx.stroke();
-                }
+    for (var j = 0; j < numChains; j++) {
+        var row = document.createElement('div')
+        row.className = 'block-row'
+        row.style.width = gridWidth + 'px'
+
+        var label = document.createElement('div')
+        label.className = 'block-row__label'
+        label.textContent = multiStates.Status[j].name
+        label.style.width = LABEL_WIDTH + 'px'
+        label.style.minWidth = LABEL_WIDTH + 'px'
+        row.appendChild(label)
+
+        var cellsContainer = document.createElement('div')
+        cellsContainer.className = 'block-row__cells'
+        cellsContainer.setAttribute('data-chain', j)
+
+        for (var i = 0; i < numBlocks; i++) {
+            var cell = document.createElement('div')
+            cell.className = 'block-cell ' + getBlockClass(multiStates.Status[j].blocks[i], j)
+            cell.setAttribute('data-idx', i)
+            cellsContainer.appendChild(cell)
+        }
+
+        row.appendChild(cellsContainer)
+        fragment.appendChild(row)
+    }
+
+    container.textContent = ''
+    container.style.width = gridWidth + 'px'
+    container.appendChild(fragment)
+}
+
+function updateGrid(container, multiStates, numChains, numBlocks) {
+    var cellContainers = container.querySelectorAll('.block-row__cells')
+
+    for (var j = 0; j < numChains; j++) {
+        if (!cellContainers[j]) continue
+
+        // Update label if chain name changed
+        var label = cellContainers[j].parentElement.querySelector('.block-row__label')
+        if (label && previousStates[j].name !== multiStates.Status[j].name) {
+            label.textContent = multiStates.Status[j].name
+        }
+
+        var cells = cellContainers[j].children
+
+        for (var i = 0; i < numBlocks; i++) {
+            if (!cells[i]) continue
+
+            // Only update if block state actually changed
+            if (previousStates[j].blocks[i] !== multiStates.Status[j].blocks[i]) {
+                cells[i].className = 'block-cell ' + getBlockClass(multiStates.Status[j].blocks[i], j)
             }
         }
     }
+}
+
+function legend() {
+    var container = document.getElementById('legendItems')
+    if (!container) return
+
+    // Only build once - legend items are static
+    if (container.children.length > 0) return
+
+    var items = [
+        { className: 'block-proposed', label: 'proposer' },
+        { className: 'block-signed', label: 'signed' },
+        { className: 'block-precommit', label: 'miss/precommit' },
+        { className: 'block-prevote', label: 'miss/prevote' },
+        { className: 'block-missed', label: 'missed' },
+        { className: 'block-nodata', label: 'no data' }
+    ]
+
+    var fragment = document.createDocumentFragment()
+
+    for (var k = 0; k < items.length; k++) {
+        var item = document.createElement('div')
+        item.className = 'legend-item'
+
+        var swatch = document.createElement('div')
+        swatch.className = 'legend-swatch ' + items[k].className
+
+        var text = document.createElement('span')
+        text.className = 'legend-text'
+        text.textContent = items[k].label
+
+        item.appendChild(swatch)
+        item.appendChild(text)
+        fragment.appendChild(item)
+    }
+
+    container.appendChild(fragment)
 }
