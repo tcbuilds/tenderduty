@@ -123,17 +123,24 @@ function legend() {
 
 function drawSeries(multiStates) {
     const canvas = document.getElementById("canvas")
-    canvas.height = ((12*gridH*multiStates.Status.length)/10) + 30
+    if (!multiStates.Status || multiStates.Status.length === 0) return
+    // Compute logical (pre-DPI) dimensions from base constants and data
+    const numBlocks = multiStates.Status[0].blocks.length
+    const logicalWidth = (numBlocks * w) + textW
+    const logicalHeight = ((12 * h * multiStates.Status.length) / 10) + 30
+    // Reset canvas to logical size before fix_dpi scales it
+    canvas.width = logicalWidth
+    canvas.height = logicalHeight
     fix_dpi("canvas")
     if (canvas.getContext) {
         const ctx = canvas.getContext('2d')
+        if (!ctx) return
         ctx.font = `${scale * 16}px sans-serif`
         ctx.fillStyle = textColor
 
         let crossThrough = false
         for (let j = 0; j < multiStates.Status.length; j++) {
 
-            //ctx.fillStyle = 'white'
             ctx.fillStyle = textColor
             ctx.fillText(multiStates.Status[j].name, 5, (j*gridH)+(gridH*2)-6, gridTextMax)
 
@@ -184,7 +191,7 @@ function drawSeries(multiStates) {
                     ctx.lineTo((i * gridW) + gridTextW, 2 * gridH + (gridH * j) - 0.5);
                     ctx.closePath();
                     ctx.strokeStyle = 'rgb(51,51,51)'
-                    ctx.strokeWidth = '5px;'
+                    ctx.lineWidth = 5
                     ctx.stroke();
                 }
 
