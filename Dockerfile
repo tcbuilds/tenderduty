@@ -1,7 +1,9 @@
 # 1st stage, build app
 FROM golang:1.22-bookworm as builder
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get -y upgrade && apt-get install -y upx
+ENV UPX_VERSION=4.2.2
+RUN apt-get update && apt-get -y upgrade && \
+    curl -sSL https://github.com/upx/upx/releases/download/v${UPX_VERSION}/upx-${UPX_VERSION}-amd64_linux.tar.xz | tar -xJ --strip-components=1 -C /usr/local/bin upx-${UPX_VERSION}-amd64_linux/upx
 COPY . /build/app
 WORKDIR /build/app
 
