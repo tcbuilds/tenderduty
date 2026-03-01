@@ -274,11 +274,11 @@
     }
 
     .block-signed {
-      background: linear-gradient(to right, rgba(0,0,0,0.4), rgba(0,0,0,0.4) 90%, rgb(186,186,186));
+      background: linear-gradient(to right, #2a2d32, #2a2d32 90%, #4a4d54);
     }
 
     .block-signed--alt {
-      background: linear-gradient(to right, rgba(0,0,0,0.1), rgba(0,0,0,0.1) 90%, rgb(186,186,186));
+      background: linear-gradient(to right, #1e2024, #1e2024 90%, #3e4148);
     }
 
     .block-precommit {
@@ -305,16 +305,20 @@
     }
 
     .block-nodata {
-      background: rgba(127, 127, 127, 0.3);
+      background: #1a1c20;
     }
 
     /* Light mode signed block adjustments */
     body.light-mode .block-signed {
-      background: linear-gradient(to right, rgba(0,0,0,0.2), rgba(0,0,0,0.2) 90%, rgb(186,186,186));
+      background: linear-gradient(to right, #c8cad0, #c8cad0 90%, #a0a3aa);
     }
 
     body.light-mode .block-signed--alt {
-      background: linear-gradient(to right, rgba(0,0,0,0.05), rgba(0,0,0,0.05) 90%, rgb(186,186,186));
+      background: linear-gradient(to right, #d8dae0, #d8dae0 90%, #b0b3ba);
+    }
+
+    body.light-mode .block-nodata {
+      background: #e8e9ec;
     }
 
     body.light-mode .block-row {
