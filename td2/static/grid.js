@@ -7,23 +7,23 @@ let gridW = w
 let gridTextMax = textMax
 let gridTextW = textW
 let scale = 1
-let textColor = "#8b8d94"
+let textColor = "#b0b0b0"
 
-let signColorAlpha = 0.35
+let signColorAlpha = 0.4 // alpha set in loop
 let isDark = true
 
 function lightMode() {
     isDark = !isDark
     if (isDark) {
-        textColor = "#8b8d94"
-        signColorAlpha = 0.35
+        textColor = "#b0b0b0"
+        signColorAlpha = 0.4
         document.body.classList.remove('light-mode')
     } else {
-        textColor = "#52525b"
+        textColor = "#3f3f3f"
         signColorAlpha = 0.2
         document.body.classList.add('light-mode')
     }
-    // Redraw legend with new colors
+    // Redraw with new colors
     legend()
 }
 
@@ -52,88 +52,73 @@ function legend() {
     l.height = scale * h * 1.2
     const ctx = l.getContext('2d')
 
-    // Clear canvas for redraw
-    ctx.clearRect(0, 0, l.width, l.height)
-
     let offset = textW
-
-    // Proposer - green gradient
     let grad = ctx.createLinearGradient(offset, 0, offset+gridW, gridH)
-    grad.addColorStop(0, 'rgb(34, 197, 94)');
-    grad.addColorStop(0.5, 'rgb(74, 222, 128)');
-    grad.addColorStop(1, 'rgb(34, 197, 94)');
+    grad.addColorStop(0, 'rgb(123,255,66)');
+    grad.addColorStop(0.3, 'rgb(240,255,128)');
+    grad.addColorStop(0.8, 'rgb(169,250,149)');
     ctx.fillStyle = grad
     ctx.fillRect(offset, 0, gridW, gridH)
-    ctx.font = `500 ${scale * 11}px monospace`
-    ctx.fillStyle = textColor
+    ctx.font = `${scale * 14}px sans-serif`
+    ctx.fillStyle = 'grey'
     offset += gridW + gridW/2
-    ctx.fillText("PROPOSER", offset, gridH/1.3)
+    ctx.fillText("proposer",offset, gridH/1.2)
 
-    // Signed - subtle dark
-    offset += 75 * scale
+    offset += 65 * scale
     grad = ctx.createLinearGradient(offset, 0, offset+gridW, gridH)
-    grad.addColorStop(0, `rgba(139, 141, 148, ${signColorAlpha})`);
-    grad.addColorStop(1, `rgba(139, 141, 148, ${signColorAlpha - 0.1})`);
+    grad.addColorStop(0, 'rgba(0,0,0,0.2)');
     ctx.fillStyle = grad
     ctx.fillRect(offset, 0, gridW, gridH)
-    ctx.fillStyle = textColor
+    ctx.fillStyle = 'grey'
     offset += gridW + gridW/2
-    ctx.fillText("SIGNED", offset, gridH/1.3)
+    ctx.fillText("signed",offset, gridH/1.2)
 
-    // Miss precommit - blue
-    offset += 55 * scale
+    offset += 50 * scale
     grad = ctx.createLinearGradient(offset, 0, offset+gridW, gridH)
-    grad.addColorStop(0, '#60a5fa');
-    grad.addColorStop(0.7, '#3b82f6');
-    grad.addColorStop(1, '#1d4ed8');
+    grad.addColorStop(0, '#85c0f9');
+    grad.addColorStop(0.7, '#85c0f9');
+    grad.addColorStop(1, '#0b2641');
     ctx.fillStyle = grad
     ctx.fillRect(offset, 0, gridW, gridH)
     offset += gridW + gridW/2
-    ctx.fillStyle = textColor
-    ctx.fillText("MISS/PRECOMMIT", offset, gridH/1.3)
+    ctx.fillStyle = 'grey'
+    ctx.fillText("miss/precommit",offset, gridH/1.2)
 
-    // Miss prevote - purple/pink
-    offset += 115 * scale
+    offset += 110 * scale
     grad = ctx.createLinearGradient(offset, 0, offset+gridW, gridH)
-    grad.addColorStop(0, '#a855f7');
-    grad.addColorStop(0.5, '#c084fc');
-    grad.addColorStop(1, '#a855f7');
+    grad.addColorStop(0, '#381a34');
+    grad.addColorStop(0.2, '#d06ec7');
+    grad.addColorStop(1, '#d06ec7');
     ctx.fillStyle = grad
     ctx.fillRect(offset, 0, gridW, gridH)
     offset += gridW + gridW/2
-    ctx.fillStyle = textColor
-    ctx.fillText("MISS/PREVOTE", offset, gridH/1.3)
+    ctx.fillStyle = 'grey'
+    ctx.fillText("miss/prevote", offset, gridH/1.2)
 
-    // Missed - orange/amber with strike
-    offset += 100 * scale
+    offset += 90 * scale
     grad = ctx.createLinearGradient(offset, 0, offset+gridW, gridH)
-    grad.addColorStop(0, '#f59e0b');
-    grad.addColorStop(0.5, '#fbbf24');
-    grad.addColorStop(1, '#d97706');
+    grad.addColorStop(0, '#8e4b26');
+    grad.addColorStop(0.4, 'darkorange');
     ctx.fillStyle = grad
     ctx.fillRect(offset, 0, gridW, gridH)
-    // Strike through line
     ctx.beginPath();
-    ctx.moveTo(offset + 2, gridH/2);
-    ctx.lineTo(offset + gridW - 2, gridH/2);
+    ctx.moveTo(offset + 1, gridH-2-gridH/2);
+    ctx.lineTo(offset + 4 + gridW / 4, gridH-1-gridH/2);
     ctx.closePath();
-    ctx.strokeStyle = 'rgba(255,255,255,0.8)'
-    ctx.lineWidth = 1.5
+    ctx.strokeStyle = 'white'
     ctx.stroke();
     offset += gridW + gridW/2
-    ctx.fillStyle = textColor
-    ctx.fillText("MISSED", offset, gridH/1.3)
+    ctx.fillStyle = 'grey'
+    ctx.fillText("missed", offset, gridH/1.2)
 
-    // No data - gray
-    offset += 60 * scale
+    offset += 59 * scale
     grad = ctx.createLinearGradient(offset, 0, offset+gridW, gridH)
-    grad.addColorStop(0, 'rgba(80, 82, 89, 0.4)');
-    grad.addColorStop(1, 'rgba(80, 82, 89, 0.2)');
+    grad.addColorStop(0, 'rgba(127,127,127,0.3)');
     ctx.fillStyle = grad
     ctx.fillRect(offset, 0, gridW, gridH)
     offset += gridW + gridW/2
-    ctx.fillStyle = textColor
-    ctx.fillText("NO DATA", offset, gridH/1.3)
+    ctx.fillStyle = 'grey'
+    ctx.fillText("no data", offset, gridH/1.2)
 }
 
 function drawSeries(multiStates) {
@@ -142,78 +127,74 @@ function drawSeries(multiStates) {
     fix_dpi("canvas")
     if (canvas.getContext) {
         const ctx = canvas.getContext('2d')
-        ctx.font = `500 ${scale * 13}px monospace`
+        ctx.font = `${scale * 16}px sans-serif`
         ctx.fillStyle = textColor
 
         let crossThrough = false
         for (let j = 0; j < multiStates.Status.length; j++) {
 
-            // Chain name label
+            //ctx.fillStyle = 'white'
             ctx.fillStyle = textColor
             ctx.fillText(multiStates.Status[j].name, 5, (j*gridH)+(gridH*2)-6, gridTextMax)
 
             for (let i = 0; i < multiStates.Status[j].blocks.length; i++) {
                 crossThrough = false
                 const grad = ctx.createLinearGradient((i*gridW)+gridTextW, (gridH*j), (i * gridW) + gridW +gridTextW, (gridH*j))
-
                 switch (multiStates.Status[j].blocks[i]) {
-                    case 4: // proposed - green
-                        grad.addColorStop(0, 'rgb(34, 197, 94)');
-                        grad.addColorStop(0.5, 'rgb(74, 222, 128)');
-                        grad.addColorStop(1, 'rgb(34, 197, 94)');
+                    case 4: // proposed
+                        grad.addColorStop(0, 'rgb(123,255,66)');
+                        grad.addColorStop(0.3, 'rgb(240,255,128)');
+                        grad.addColorStop(0.8, 'rgb(169,250,149)');
                         break
-                    case 3: // signed - subtle alternating
+                    case 3: // signed
                         if (j % 2 === 0) {
-                            grad.addColorStop(0, `rgba(139, 141, 148, ${signColorAlpha})`);
-                            grad.addColorStop(1, `rgba(139, 141, 148, ${signColorAlpha})`);
+                            grad.addColorStop(0, `rgba(0,0,0,${signColorAlpha})`);
+                            grad.addColorStop(0.9, `rgba(0,0,0,${signColorAlpha})`);
                         } else {
-                            grad.addColorStop(0, `rgba(139, 141, 148, ${signColorAlpha - 0.15})`);
-                            grad.addColorStop(1, `rgba(139, 141, 148, ${signColorAlpha - 0.15})`);
+                            grad.addColorStop(0, `rgba(0,0,0,${signColorAlpha-0.3})`);
+                            grad.addColorStop(0.9, `rgba(0,0,0,${signColorAlpha-0.3})`);
                         }
+                        grad.addColorStop(1, 'rgb(186,186,186)');
                         break
-                    case 2: // precommit not included - blue
-                        grad.addColorStop(0, '#60a5fa');
-                        grad.addColorStop(0.7, '#3b82f6');
-                        grad.addColorStop(1, '#1d4ed8');
+                    case 2: // precommit not included
+                        grad.addColorStop(0, '#85c0f9');
+                        grad.addColorStop(0.8, '#85c0f9');
+                        grad.addColorStop(1, '#0b2641');
                         break
-                    case 1: // prevote not included - purple
-                        grad.addColorStop(0, '#a855f7');
-                        grad.addColorStop(0.5, '#c084fc');
-                        grad.addColorStop(1, '#a855f7');
+                    case 1: // prevote not included
+                        grad.addColorStop(0, '#381a34');
+                        grad.addColorStop(0.2, '#d06ec7');
+                        grad.addColorStop(1, '#d06ec7');
                         break
-                    case 0: // missed - amber
-                        grad.addColorStop(0, '#f59e0b');
-                        grad.addColorStop(0.5, '#fbbf24');
-                        grad.addColorStop(1, '#d97706');
+                    case 0: // missed
+                        grad.addColorStop(0, '#c15600');
                         crossThrough = true
                         break
-                    default: // no data
-                        grad.addColorStop(0, 'rgba(80, 82, 89, 0.3)');
-                        grad.addColorStop(1, 'rgba(80, 82, 89, 0.15)');
+                    default:
+                        grad.addColorStop(0, 'rgba(127,127,127,0.3)');
                 }
                 ctx.clearRect((i*gridW)+gridTextW, gridH+(gridH*j), gridW, gridH)
                 ctx.fillStyle = grad
                 ctx.fillRect((i*gridW)+gridTextW, gridH+(gridH*j), gridW, gridH)
 
-                // Subtle line between rows
+                // line between rows
                 if (i > 0) {
                     ctx.beginPath();
                     ctx.moveTo((i * gridW) - gridW + gridTextW, 2 * gridH + (gridH * j) - 0.5)
                     ctx.lineTo((i * gridW) + gridTextW, 2 * gridH + (gridH * j) - 0.5);
                     ctx.closePath();
-                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)'
-                    ctx.lineWidth = 1
+                    ctx.strokeStyle = 'rgb(51,51,51)'
+                    ctx.strokeWidth = '5px;'
                     ctx.stroke();
                 }
 
-                // Visual differentiation for missed blocks - white strike
+                // visual differentiation for missed blocks
                 if (crossThrough) {
                     ctx.beginPath();
-                    ctx.moveTo((i * gridW) + gridTextW + 2, (gridH*j) + (gridH * 2) - gridH / 2);
-                    ctx.lineTo((i * gridW) + gridTextW + gridW - 2, (gridH*j) + (gridH * 2) - gridH / 2);
+                    ctx.moveTo((i * gridW) + gridTextW + 1 + gridW / 4, (gridH*j) + (gridH * 2) - gridH / 2);
+                    ctx.lineTo((i * gridW) + gridTextW + gridW - (gridW / 4) - 1, (gridH*j) + (gridH * 2) - gridH / 2);
                     ctx.closePath();
-                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)'
-                    ctx.lineWidth = 1.5
+                    ctx.strokeStyle = 'white'
                     ctx.stroke();
                 }
             }

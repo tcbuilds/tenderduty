@@ -418,7 +418,7 @@
       color: var(--text-secondary);
     }
 
-    /* Warning icon */
+    /* Warning icon with custom tooltip */
     .alert-icon {
       display: inline-flex;
       align-items: center;
@@ -428,6 +428,10 @@
       color: var(--status-warning);
       cursor: pointer;
       transition: transform 0.1s ease;
+      position: relative;
+      background: none;
+      border: none;
+      padding: 0;
     }
 
     .alert-icon:hover {
@@ -437,6 +441,39 @@
     .alert-icon svg {
       width: 18px;
       height: 18px;
+    }
+
+    /* Custom tooltip */
+    .alert-icon.has-tooltip::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      left: 50%;
+      bottom: 100%;
+      transform: translateX(-50%);
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-strong);
+      color: var(--text-primary);
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-family: var(--font-mono);
+      white-space: pre-line;
+      max-width: 350px;
+      width: max-content;
+      z-index: 100;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.15s ease, visibility 0.15s ease;
+      pointer-events: none;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      margin-bottom: 8px;
+      text-align: left;
+      line-height: 1.4;
+    }
+
+    .alert-icon.has-tooltip:hover::after {
+      opacity: 1;
+      visibility: visible;
     }
 
     /* Node status */
