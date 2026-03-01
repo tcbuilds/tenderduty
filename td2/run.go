@@ -103,9 +103,9 @@ func Run(configFile, stateFile, chainConfigDirectory string, password *string) e
 			const (
 				initialBackoff = 5 * time.Second
 				maxBackoff     = 5 * time.Minute
-				stableRunTime  = 30 * time.Second
 			)
 			backoff := initialBackoff
+			cc.failedWsUrls = make(map[string]bool)
 			for {
 				e := cc.newRpc()
 				if e != nil {
@@ -119,10 +119,18 @@ func Run(configFile, stateFile, chainConfigDirectory string, password *string) e
 				if e != nil {
 					l("🛑", cc.ChainId, e)
 				}
-				wsStart := time.Now()
+				blockBefore := cc.lastBlockNum
 				cc.WsRun()
-				if time.Since(wsStart) > stableRunTime {
+				// Record the URL that just failed so newRpc tries a different node
+				cc.mtx.RLock()
+				if cc.client != nil {
+					cc.failedWsUrls[cc.client.Remote()] = true
+				}
+				cc.mtx.RUnlock()
+				// Only reset if blocks were actually received (WS was truly working)
+				if cc.lastBlockNum > blockBefore {
 					backoff = initialBackoff
+					cc.failedWsUrls = make(map[string]bool)
 				}
 				l(cc.ChainId, "🌀 websocket exited! Restarting monitoring")
 				l(fmt.Sprintf("⏳ %s retrying in %s", cc.ChainId, backoff))

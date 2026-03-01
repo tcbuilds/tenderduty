@@ -81,8 +81,14 @@ func (cc *ChainConfig) newRpc() error {
 		}
 		endpoint.lastMsg = msg
 	}
+	// Pass 1: try nodes not in the failed WebSocket set.
+	// This prevents getting stuck on nodes whose RPC passes but whose
+	// WebSocket never delivers events.
 	for _, endpoint := range cc.Nodes {
 		if anyWorking && endpoint.down {
+			continue
+		}
+		if cc.failedWsUrls[endpoint.Url] {
 			continue
 		}
 		if msg, failed, syncing := tryUrl(endpoint.Url); failed {
@@ -91,6 +97,23 @@ func (cc *ChainConfig) newRpc() error {
 			continue
 		}
 		return nil
+	}
+	// Pass 2: if no untried node worked, try failed WS nodes as fallback.
+	if len(cc.failedWsUrls) > 0 {
+		for _, endpoint := range cc.Nodes {
+			if !cc.failedWsUrls[endpoint.Url] {
+				continue
+			}
+			if anyWorking && endpoint.down {
+				continue
+			}
+			if msg, failed, syncing := tryUrl(endpoint.Url); failed {
+				endpoint.syncing = syncing
+				markDown(endpoint, msg)
+				continue
+			}
+			return nil
+		}
 	}
 	if cc.PublicFallback {
 		if u, ok := getRegistryUrl(cc.ChainId); ok {
@@ -232,10 +255,27 @@ func (cc *ChainConfig) sendHealthUpdate() {
 		return
 	}
 	healthyNodes := 0
+	var downNodes []string
 	for _, node := range cc.Nodes {
 		if !node.down {
 			healthyNodes++
+		} else if !td.HideLogs {
+			downNodes = append(downNodes, " - "+node.Url)
 		}
+	}
+	downCount := len(cc.Nodes) - healthyNodes
+	info := ""
+	if downCount > 0 && len(downNodes) > 0 {
+		info = fmt.Sprintf("⚠ %d of %d RPC nodes down:", downCount, len(cc.Nodes))
+		for _, dn := range downNodes {
+			info += "\n" + dn
+		}
+	}
+	lastError := cc.lastError
+	if info != "" && lastError != "" {
+		lastError = info + "\n" + lastError
+	} else if info != "" {
+		lastError = info
 	}
 	cc.activeAlerts = alarms.getCount(cc.name)
 	td.updateChan <- &dash.ChainStatus{
@@ -252,7 +292,7 @@ func (cc *ChainConfig) sendHealthUpdate() {
 		HealthyNodes: healthyNodes,
 		ActiveAlerts: cc.activeAlerts,
 		Height:       cc.lastBlockNum,
-		LastError:    cc.lastError,
+		LastError:    lastError,
 		Blocks:       cc.blocksResults,
 	}
 }

@@ -72,13 +72,13 @@ function updateTable(status) {
         if (nodesDown || hasError || hasAlerts) {
             // Build descriptive error message
             let errorMsg = status.Status[i].last_error || ""
-            if (!errorMsg && nodesDown) {
-                const downCount = status.Status[i].nodes - status.Status[i].healthy_nodes
-                errorMsg = `${downCount} of ${status.Status[i].nodes} RPC nodes are down`
-            }
+
+            // Encode for safe embedding in HTML attributes and onclick
+            const tooltipMsg = _.escape(errorMsg).replace(/"/g, '&quot;').replace(/\n/g, '&#10;')
+            const modalMsg = _.escape(errorMsg).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n')
 
             alerts = `
-            <button class="alert-icon has-tooltip" data-tooltip="${_.escape(errorMsg).replace(/"/g, '&quot;').replace(/\n/g, '&#10;')}" onclick="showModal('${_.escape(errorMsg).replace(/'/g, "\\'")}', 'Issues: ${_.escape(status.Status[i].name)}')">
+            <button class="alert-icon has-tooltip" data-tooltip="${tooltipMsg}" onclick="showModal('${modalMsg}', 'Issues: ${_.escape(status.Status[i].name)}')">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
                     <line x1="12" y1="9" x2="12" y2="13"></line>
