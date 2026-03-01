@@ -1,62 +1,878 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <style>
-      /*canvas {
-          image-rendering: -moz-crisp-edges;
-          image-rendering: -webkit-crisp-edges;
-          image-rendering: crisp-edges;
-      }*/
-  </style>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="css/uikit.min.css" />
-  <title>Tenderduty Dashboard</title>
-  <script src="js/uikit.min.js"></script>
-  <script src="./js/uikit-icons.min.js"></script>
+  <title>TenderDuty | Validator Monitor</title>
+  <link rel="icon" href="favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="./js/lodash.min.js"></script>
   <script type="application/javascript" src="grid.js"></script>
   <script type="application/javascript" src="status.js"></script>
-  <link rel="icon" href="favicon.png">
+  <style>
+    /*
+     * TenderDuty Dashboard - Industrial Monitoring Aesthetic
+     * Signature detail: Glowing status indicators with terminal-grade typography
+     */
+
+    :root {
+      /* Core palette - warm industrial blacks */
+      --bg-primary: #0a0b0d;
+      --bg-secondary: #101114;
+      --bg-tertiary: #16181c;
+      --bg-elevated: #1c1e24;
+
+      /* Text hierarchy */
+      --text-primary: #e8e9eb;
+      --text-secondary: #8b8d94;
+      --text-muted: #505259;
+
+      /* Status colors - deliberately chosen to work with canvas colors */
+      --status-online: #22c55e;
+      --status-warning: #f59e0b;
+      --status-error: #ef4444;
+      --status-info: #3b82f6;
+
+      /* Accent - subtle cyan for interactive elements */
+      --accent: #22d3ee;
+      --accent-muted: rgba(34, 211, 238, 0.15);
+
+      /* Borders and lines */
+      --border-subtle: rgba(255, 255, 255, 0.06);
+      --border-strong: rgba(255, 255, 255, 0.12);
+
+      /* Typography */
+      --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+      --font-display: 'Space Grotesk', system-ui, sans-serif;
+
+      /* Spacing scale */
+      --space-1: 4px;
+      --space-2: 8px;
+      --space-3: 12px;
+      --space-4: 16px;
+      --space-5: 24px;
+      --space-6: 32px;
+      --space-7: 48px;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      font-size: 12px;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    body {
+      font-family: var(--font-display);
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    /* Main container */
+    .dashboard {
+      max-width: 1800px;
+      margin: 0 auto;
+      padding: var(--space-4);
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-4);
+      min-height: 100vh;
+    }
+
+    /* Header */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: var(--space-3) 0;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .header__brand {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+    }
+
+    .header__title {
+      font-family: var(--font-mono);
+      font-size: 1.25rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: var(--text-primary);
+    }
+
+    .header__title span {
+      color: var(--accent);
+    }
+
+    .header__status {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--status-online);
+      box-shadow: 0 0 8px var(--status-online);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .header__actions {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+    }
+
+    .btn-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      background: transparent;
+      border: 1px solid var(--border-subtle);
+      border-radius: 4px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .btn-icon:hover {
+      background: var(--bg-tertiary);
+      border-color: var(--border-strong);
+      color: var(--text-primary);
+    }
+
+    .btn-icon:focus {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .btn-icon svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    /* Canvas section */
+    .canvas-section {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .canvas-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: var(--space-3) var(--space-4);
+      border-bottom: 1px solid var(--border-subtle);
+      background: var(--bg-tertiary);
+    }
+
+    .canvas-header__title {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .canvas-container {
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding: var(--space-4);
+    }
+
+    .canvas-container::-webkit-scrollbar {
+      height: 8px;
+    }
+
+    .canvas-container::-webkit-scrollbar-track {
+      background: var(--bg-tertiary);
+      border-radius: 4px;
+    }
+
+    .canvas-container::-webkit-scrollbar-thumb {
+      background: var(--border-strong);
+      border-radius: 4px;
+    }
+
+    .canvas-container::-webkit-scrollbar-thumb:hover {
+      background: var(--text-muted);
+    }
+
+    #canvas {
+      display: block;
+    }
+
+    /* Legend */
+    .legend-container {
+      display: flex;
+      justify-content: center;
+      padding: var(--space-3) var(--space-4);
+      background: var(--bg-tertiary);
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    #legend {
+      display: block;
+    }
+
+    /* Status table section */
+    .table-section {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .table-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: var(--space-3) var(--space-4);
+      border-bottom: 1px solid var(--border-subtle);
+      background: var(--bg-tertiary);
+    }
+
+    .table-header__title {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .table-container {
+      overflow-x: auto;
+    }
+
+    .status-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+    }
+
+    .status-table thead {
+      background: var(--bg-tertiary);
+    }
+
+    .status-table th {
+      padding: var(--space-3) var(--space-4);
+      text-align: left;
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      border-bottom: 1px solid var(--border-subtle);
+      white-space: nowrap;
+    }
+
+    .status-table th:nth-child(4),
+    .status-table th:nth-child(5),
+    .status-table th:nth-child(6),
+    .status-table th:nth-child(7) {
+      text-align: center;
+    }
+
+    .status-table tbody tr {
+      border-bottom: 1px solid var(--border-subtle);
+      transition: background 0.1s ease;
+    }
+
+    .status-table tbody tr:last-child {
+      border-bottom: none;
+    }
+
+    .status-table tbody tr:hover {
+      background: var(--bg-tertiary);
+    }
+
+    .status-table td {
+      padding: var(--space-3) var(--space-4);
+      vertical-align: middle;
+    }
+
+    .status-table td:nth-child(4),
+    .status-table td:nth-child(5),
+    .status-table td:nth-child(6),
+    .status-table td:nth-child(7) {
+      text-align: center;
+    }
+
+    /* Cell styling */
+    .cell-alert {
+      width: 40px;
+    }
+
+    .cell-chain {
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    .cell-chain small {
+      display: block;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    .cell-height {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .cell-moniker {
+      max-width: 200px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .cell-uptime {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+    }
+
+    .uptime-grid {
+      display: flex;
+      gap: var(--space-3);
+      justify-content: center;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+    }
+
+    .uptime-detail {
+      color: var(--text-muted);
+    }
+
+    .cell-nodes {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+    }
+
+    /* Status badges */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-1);
+      padding: 2px 8px;
+      border-radius: 3px;
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      font-weight: 500;
+    }
+
+    .badge--bonded {
+      background: rgba(34, 197, 94, 0.15);
+      color: var(--status-online);
+    }
+
+    .badge--jailed {
+      background: rgba(245, 158, 11, 0.15);
+      color: var(--status-warning);
+    }
+
+    .badge--tombstoned {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--status-error);
+    }
+
+    .badge--inactive {
+      background: rgba(139, 141, 148, 0.15);
+      color: var(--text-secondary);
+    }
+
+    /* Warning icon */
+    .alert-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      color: var(--status-warning);
+      cursor: pointer;
+      transition: transform 0.1s ease;
+    }
+
+    .alert-icon:hover {
+      transform: scale(1.1);
+    }
+
+    .alert-icon svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    /* Node status */
+    .node-status {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-1);
+    }
+
+    .node-status--degraded {
+      color: var(--status-warning);
+    }
+
+    .node-status svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    /* Height animation */
+    .height-updated {
+      animation: heightFlash 0.4s ease-out;
+    }
+
+    @keyframes heightFlash {
+      0% {
+        color: var(--accent);
+        text-shadow: 0 0 8px var(--accent);
+      }
+      100% {
+        color: var(--text-secondary);
+        text-shadow: none;
+      }
+    }
+
+    /* Logs section */
+    .logs-section {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      overflow: hidden;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 250px;
+    }
+
+    .logs-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: var(--space-3) var(--space-4);
+      border-bottom: 1px solid var(--border-subtle);
+      background: var(--bg-tertiary);
+      flex-shrink: 0;
+    }
+
+    .logs-header__title {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .logs-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: var(--space-3);
+      background: var(--bg-primary);
+      resize: vertical;
+      min-height: 200px;
+    }
+
+    .logs-container::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .logs-container::-webkit-scrollbar-track {
+      background: var(--bg-tertiary);
+    }
+
+    .logs-container::-webkit-scrollbar-thumb {
+      background: var(--border-strong);
+      border-radius: 4px;
+    }
+
+    #logs {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      line-height: 1.7;
+      color: var(--text-secondary);
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin: 0;
+    }
+
+    /* Footer */
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--space-4);
+      padding: var(--space-4) 0;
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    .footer a {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.8rem;
+      transition: color 0.15s ease;
+    }
+
+    .footer a:hover {
+      color: var(--text-secondary);
+    }
+
+    .footer a:focus {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .footer svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    .footer img {
+      height: 20px;
+      opacity: 0.5;
+      transition: opacity 0.15s ease;
+    }
+
+    .footer a:hover img {
+      opacity: 0.8;
+    }
+
+    /* Modal */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(4px);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      padding: var(--space-4);
+    }
+
+    .modal-overlay.active {
+      display: flex;
+    }
+
+    .modal {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-strong);
+      border-radius: 8px;
+      max-width: 600px;
+      width: 100%;
+      max-height: 80vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .modal__header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: var(--space-4);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .modal__title {
+      font-family: var(--font-mono);
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .modal__close {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: 4px;
+      transition: all 0.15s ease;
+    }
+
+    .modal__close:hover {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+    }
+
+    .modal__close:focus {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .modal__body {
+      padding: var(--space-4);
+      overflow-y: auto;
+    }
+
+    .modal__body pre {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin: 0;
+    }
+
+    /* Light mode */
+    body.light-mode {
+      --bg-primary: #f5f5f7;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #f0f0f2;
+      --bg-elevated: #ffffff;
+      --text-primary: #1a1a1c;
+      --text-secondary: #52525b;
+      --text-muted: #a1a1aa;
+      --border-subtle: rgba(0, 0, 0, 0.08);
+      --border-strong: rgba(0, 0, 0, 0.15);
+      --accent: #0891b2;
+      --accent-muted: rgba(8, 145, 178, 0.1);
+    }
+
+    body.light-mode .logs-container {
+      background: var(--bg-tertiary);
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      html {
+        font-size: 13px;
+      }
+
+      .dashboard {
+        padding: var(--space-3);
+        gap: var(--space-3);
+      }
+
+      .header {
+        flex-direction: column;
+        gap: var(--space-3);
+        align-items: flex-start;
+      }
+
+      .header__actions {
+        width: 100%;
+        justify-content: flex-end;
+      }
+
+      .status-table {
+        font-size: 0.8rem;
+      }
+
+      .status-table th,
+      .status-table td {
+        padding: var(--space-2) var(--space-3);
+      }
+
+      .cell-moniker {
+        max-width: 120px;
+      }
+    }
+
+    /* Warning text */
+    .text-warning {
+      color: var(--status-warning);
+    }
+
+    .text-error {
+      color: var(--status-error);
+    }
+
+    /* Utility: visually hidden */
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+  </style>
 </head>
 
-<body class="uk-background-secondary uk-light" onload="loadState(); legend()">
-<div class="uk-container uk-width-expand uk-height-viewport">
-  <div class="uk-width-expand uk-overflow-auto uk-background-secondary" id="canvasDiv">
-    <div style="width: 4835px;" class="uk-padding-remove-horizontal">
-      <canvas id="canvas" height="20" width="4735"></canvas>
+<body onload="loadState(); legend()">
+  <div class="dashboard">
+    <!-- Header -->
+    <header class="header">
+      <div class="header__brand">
+        <h1 class="header__title">TENDER<span>DUTY</span></h1>
+        <div class="header__status">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span>MONITORING</span>
+        </div>
+      </div>
+      <div class="header__actions">
+        <button class="btn-icon" onclick="lightMode()" aria-label="Toggle light/dark mode" title="Toggle theme">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="5"></circle>
+            <line x1="12" y1="1" x2="12" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="23"></line>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+            <line x1="1" y1="12" x2="3" y2="12"></line>
+            <line x1="21" y1="12" x2="23" y2="12"></line>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Block signing canvas -->
+    <section class="canvas-section" aria-label="Block signing history">
+      <div class="canvas-header">
+        <span class="canvas-header__title">Block Signing History</span>
+      </div>
+      <div class="canvas-container" id="canvasDiv">
+        <div style="width: 4835px;">
+          <canvas id="canvas" height="20" width="4735"></canvas>
+        </div>
+      </div>
+      <div class="legend-container" id="legendContainer">
+        <canvas id="legend" height="32" width="700" aria-label="Legend for block states"></canvas>
+      </div>
+    </section>
+
+    <!-- Status table -->
+    <section class="table-section" aria-label="Validator status">
+      <div class="table-header">
+        <span class="table-header__title">Validator Status</span>
+      </div>
+      <div class="table-container" id="tableDiv">
+        <table class="status-table">
+          <thead>
+            <tr>
+              <th class="cell-alert"><span class="sr-only">Alerts</span></th>
+              <th>Chain</th>
+              <th>Height</th>
+              <th>Moniker</th>
+              <th>Bonded</th>
+              <th>Uptime</th>
+              <th>RPC Nodes</th>
+            </tr>
+          </thead>
+          <tbody id="statusTable"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Logs -->
+    <section class="logs-section" id="logContainer" aria-label="Activity logs">
+      <div class="logs-header">
+        <span class="logs-header__title">Activity Log</span>
+      </div>
+      <div class="logs-container">
+        <pre id="logs" role="log" aria-live="polite" aria-atomic="false"></pre>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <a href="https://blockpane.com" target="_blank" rel="noopener noreferrer">
+        <img src="bp-logo-text.svg" alt="block pane">
+      </a>
+      <a href="https://github.com/blockpane/tenderduty" target="_blank" rel="noopener noreferrer" aria-label="View on GitHub">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+        </svg>
+      </a>
+    </footer>
+  </div>
+
+  <!-- Modal container for error details -->
+  <div id="errorModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal">
+      <div class="modal__header">
+        <h2 id="modalTitle" class="modal__title">Error Details</h2>
+        <button class="modal__close" onclick="closeModal()" aria-label="Close modal">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="modal__body">
+        <pre id="modalContent"></pre>
+      </div>
     </div>
-    <div id="legendContainer" class="uk-nav-center uk-background-secondary uk-padding-remove">
-      <canvas id="legend" height="32" width="700"></canvas>
-    </div>
   </div>
 
-  <div class="uk-padding-small uk-text-small uk-background-secondary uk-overflow-auto" id="tableDiv">
-    <table class="uk-table uk-table-small uk-table-justify uk-padding-remove">
-      <thead>
-      <tr>
-        <th></th>
-        <th>Chain</th>
-        <th>Height</th>
-        <th>Moniker</th>
-        <th style="text-align: center">Bonded</th>
-        <th class="uk-text-center">Uptime</th>
-        <th class="uk-text-center">RPC Nodes</th>
-      </tr>
-      </thead>
-      <tbody id="statusTable"></tbody>
-    </table>
-  </div>
+  <script>
+    // Modal functions
+    function showModal(content, title) {
+      document.getElementById('modalTitle').textContent = title || 'Error Details';
+      document.getElementById('modalContent').textContent = content;
+      document.getElementById('errorModal').classList.add('active');
+      document.body.style.overflow = 'hidden';
+    }
 
-  <div class="uk-padding-large uk-padding-remove-top" id="logContainer">
-    <pre id="logs" class="uk-panel-scrollable uk-resize-vertical" style="background: #080808; height: 300px;"></pre>
-  </div>
+    function closeModal() {
+      document.getElementById('errorModal').classList.remove('active');
+      document.body.style.overflow = '';
+    }
 
-  <div class="uk-text-small uk-text-center">
-    <a class="uk-link-muted" onclick="lightMode()"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-brightness-high" viewBox="0 0 16 16"><path d="M8 11a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm0 1a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM8 0a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-1 0v-2A.5.5 0 0 1 8 0zm0 13a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-1 0v-2A.5.5 0 0 1 8 13zm8-5a.5.5 0 0 1-.5.5h-2a.5.5 0 0 1 0-1h2a.5.5 0 0 1 .5.5zM3 8a.5.5 0 0 1-.5.5h-2a.5.5 0 0 1 0-1h2A.5.5 0 0 1 3 8zm10.657-5.657a.5.5 0 0 1 0 .707l-1.414 1.415a.5.5 0 1 1-.707-.708l1.414-1.414a.5.5 0 0 1 .707 0zm-9.193 9.193a.5.5 0 0 1 0 .707L3.05 13.657a.5.5 0 0 1-.707-.707l1.414-1.414a.5.5 0 0 1 .707 0zm9.193 2.121a.5.5 0 0 1-.707 0l-1.414-1.414a.5.5 0 0 1 .707-.707l1.414 1.414a.5.5 0 0 1 0 .707zM4.464 4.465a.5.5 0 0 1-.707 0L2.343 3.05a.5.5 0 1 1 .707-.707l1.414 1.414a.5.5 0 0 1 0 .708z"/></svg></a>
-    <a class="uk-link-muted" href="https://blockpane.com"><img src="bp-logo-text.svg" alt="[ block pane ]" style="height: 24px;"></a>
-    <a href="https://github.com/blockpane/tenderduty"><span uk-icon="github" style="color: grey"></span></a>
-  </div>
-</div>
+    // Close modal on escape key
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' && document.getElementById('errorModal').classList.contains('active')) {
+        closeModal();
+      }
+    });
+
+    // Close modal on overlay click
+    document.getElementById('errorModal').addEventListener('click', function(e) {
+      if (e.target === this) {
+        closeModal();
+      }
+    });
+  </script>
 </body>
 </html>

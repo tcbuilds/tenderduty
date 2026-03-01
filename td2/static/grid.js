@@ -7,31 +7,24 @@ let gridW = w
 let gridTextMax = textMax
 let gridTextW = textW
 let scale = 1
-let textColor = "#b0b0b0"
+let textColor = "#8b8d94"
 
-let signColorAlpha = 0.4 // alpha set in loop
+let signColorAlpha = 0.35
 let isDark = true
 
 function lightMode() {
     isDark = !isDark
     if (isDark) {
-        textColor = "#b0b0b0"
-        signColorAlpha = 0.4
-        document.body.className = "uk-background-secondary uk-light"
-        document.getElementById('canvasDiv').className = "uk-width-expand uk-overflow-auto uk-background-secondary"
-        document.getElementById("tableDiv").className = "uk-padding-small uk-text-small uk-background-secondary uk-overflow-auto"
-        document.getElementById("legendContainer").className = "uk-nav-center uk-background-secondary uk-padding-remove"
-        document.getElementById("logs").style = "background: #080808; height: 300px;"
-
-        return
+        textColor = "#8b8d94"
+        signColorAlpha = 0.35
+        document.body.classList.remove('light-mode')
+    } else {
+        textColor = "#52525b"
+        signColorAlpha = 0.2
+        document.body.classList.add('light-mode')
     }
-    textColor = "#3f3f3f"
-    signColorAlpha = 0.2
-    document.body.className = "uk-background-default uk-text-default"
-    document.getElementById('canvasDiv').className = "uk-width-expand uk-overflow-auto uk-background-default"
-    document.getElementById("tableDiv").className = "uk-padding-small uk-text-small uk-background-default uk-overflow-auto"
-    document.getElementById("legendContainer").className = "uk-nav-center uk-background-default uk-padding-remove"
-    document.getElementById("logs").style = "color: #0a0a0a; background: #dddddd; height: 300px;"
+    // Redraw legend with new colors
+    legend()
 }
 
 function fix_dpi(id) {
@@ -59,73 +52,88 @@ function legend() {
     l.height = scale * h * 1.2
     const ctx = l.getContext('2d')
 
+    // Clear canvas for redraw
+    ctx.clearRect(0, 0, l.width, l.height)
+
     let offset = textW
+
+    // Proposer - green gradient
     let grad = ctx.createLinearGradient(offset, 0, offset+gridW, gridH)
-    grad.addColorStop(0, 'rgb(123,255,66)');
-    grad.addColorStop(0.3, 'rgb(240,255,128)');
-    grad.addColorStop(0.8, 'rgb(169,250,149)');
+    grad.addColorStop(0, 'rgb(34, 197, 94)');
+    grad.addColorStop(0.5, 'rgb(74, 222, 128)');
+    grad.addColorStop(1, 'rgb(34, 197, 94)');
     ctx.fillStyle = grad
     ctx.fillRect(offset, 0, gridW, gridH)
-    ctx.font = `${scale * 14}px sans-serif`
-    ctx.fillStyle = 'grey'
+    ctx.font = `500 ${scale * 11}px monospace`
+    ctx.fillStyle = textColor
     offset += gridW + gridW/2
-    ctx.fillText("proposer",offset, gridH/1.2)
+    ctx.fillText("PROPOSER", offset, gridH/1.3)
 
-    offset += 65 * scale
+    // Signed - subtle dark
+    offset += 75 * scale
     grad = ctx.createLinearGradient(offset, 0, offset+gridW, gridH)
-    grad.addColorStop(0, 'rgba(0,0,0,0.2)');
+    grad.addColorStop(0, `rgba(139, 141, 148, ${signColorAlpha})`);
+    grad.addColorStop(1, `rgba(139, 141, 148, ${signColorAlpha - 0.1})`);
     ctx.fillStyle = grad
     ctx.fillRect(offset, 0, gridW, gridH)
-    ctx.fillStyle = 'grey'
+    ctx.fillStyle = textColor
     offset += gridW + gridW/2
-    ctx.fillText("signed",offset, gridH/1.2)
+    ctx.fillText("SIGNED", offset, gridH/1.3)
 
-    offset += 50 * scale
+    // Miss precommit - blue
+    offset += 55 * scale
     grad = ctx.createLinearGradient(offset, 0, offset+gridW, gridH)
-    grad.addColorStop(0, '#85c0f9');
-    grad.addColorStop(0.7, '#85c0f9');
-    grad.addColorStop(1, '#0b2641');
-    ctx.fillStyle = grad
-    ctx.fillRect(offset, 0, gridW, gridH)
-    offset += gridW + gridW/2
-    ctx.fillStyle = 'grey'
-    ctx.fillText("miss/precommit",offset, gridH/1.2)
-
-    offset += 110 * scale
-    grad = ctx.createLinearGradient(offset, 0, offset+gridW, gridH)
-    grad.addColorStop(0, '#381a34');
-    grad.addColorStop(0.2, '#d06ec7');
-    grad.addColorStop(1, '#d06ec7');
+    grad.addColorStop(0, '#60a5fa');
+    grad.addColorStop(0.7, '#3b82f6');
+    grad.addColorStop(1, '#1d4ed8');
     ctx.fillStyle = grad
     ctx.fillRect(offset, 0, gridW, gridH)
     offset += gridW + gridW/2
-    ctx.fillStyle = 'grey'
-    ctx.fillText("miss/prevote", offset, gridH/1.2)
+    ctx.fillStyle = textColor
+    ctx.fillText("MISS/PRECOMMIT", offset, gridH/1.3)
 
-    offset += 90 * scale
+    // Miss prevote - purple/pink
+    offset += 115 * scale
     grad = ctx.createLinearGradient(offset, 0, offset+gridW, gridH)
-    grad.addColorStop(0, '#8e4b26');
-    grad.addColorStop(0.4, 'darkorange');
+    grad.addColorStop(0, '#a855f7');
+    grad.addColorStop(0.5, '#c084fc');
+    grad.addColorStop(1, '#a855f7');
     ctx.fillStyle = grad
     ctx.fillRect(offset, 0, gridW, gridH)
+    offset += gridW + gridW/2
+    ctx.fillStyle = textColor
+    ctx.fillText("MISS/PREVOTE", offset, gridH/1.3)
+
+    // Missed - orange/amber with strike
+    offset += 100 * scale
+    grad = ctx.createLinearGradient(offset, 0, offset+gridW, gridH)
+    grad.addColorStop(0, '#f59e0b');
+    grad.addColorStop(0.5, '#fbbf24');
+    grad.addColorStop(1, '#d97706');
+    ctx.fillStyle = grad
+    ctx.fillRect(offset, 0, gridW, gridH)
+    // Strike through line
     ctx.beginPath();
-    ctx.moveTo(offset + 1, gridH-2-gridH/2);
-    ctx.lineTo(offset + 4 + gridW / 4, gridH-1-gridH/2);
+    ctx.moveTo(offset + 2, gridH/2);
+    ctx.lineTo(offset + gridW - 2, gridH/2);
     ctx.closePath();
-    ctx.strokeStyle = 'white'
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)'
+    ctx.lineWidth = 1.5
     ctx.stroke();
     offset += gridW + gridW/2
-    ctx.fillStyle = 'grey'
-    ctx.fillText("missed", offset, gridH/1.2)
+    ctx.fillStyle = textColor
+    ctx.fillText("MISSED", offset, gridH/1.3)
 
-    offset += 59 * scale
+    // No data - gray
+    offset += 60 * scale
     grad = ctx.createLinearGradient(offset, 0, offset+gridW, gridH)
-    grad.addColorStop(0, 'rgba(127,127,127,0.3)');
+    grad.addColorStop(0, 'rgba(80, 82, 89, 0.4)');
+    grad.addColorStop(1, 'rgba(80, 82, 89, 0.2)');
     ctx.fillStyle = grad
     ctx.fillRect(offset, 0, gridW, gridH)
     offset += gridW + gridW/2
-    ctx.fillStyle = 'grey'
-    ctx.fillText("no data", offset, gridH/1.2)
+    ctx.fillStyle = textColor
+    ctx.fillText("NO DATA", offset, gridH/1.3)
 }
 
 function drawSeries(multiStates) {
@@ -134,74 +142,78 @@ function drawSeries(multiStates) {
     fix_dpi("canvas")
     if (canvas.getContext) {
         const ctx = canvas.getContext('2d')
-        ctx.font = `${scale * 16}px sans-serif`
+        ctx.font = `500 ${scale * 13}px monospace`
         ctx.fillStyle = textColor
 
         let crossThrough = false
         for (let j = 0; j < multiStates.Status.length; j++) {
 
-            //ctx.fillStyle = 'white'
+            // Chain name label
             ctx.fillStyle = textColor
             ctx.fillText(multiStates.Status[j].name, 5, (j*gridH)+(gridH*2)-6, gridTextMax)
 
             for (let i = 0; i < multiStates.Status[j].blocks.length; i++) {
                 crossThrough = false
                 const grad = ctx.createLinearGradient((i*gridW)+gridTextW, (gridH*j), (i * gridW) + gridW +gridTextW, (gridH*j))
+
                 switch (multiStates.Status[j].blocks[i]) {
-                    case 4: // proposed
-                        grad.addColorStop(0, 'rgb(123,255,66)');
-                        grad.addColorStop(0.3, 'rgb(240,255,128)');
-                        grad.addColorStop(0.8, 'rgb(169,250,149)');
+                    case 4: // proposed - green
+                        grad.addColorStop(0, 'rgb(34, 197, 94)');
+                        grad.addColorStop(0.5, 'rgb(74, 222, 128)');
+                        grad.addColorStop(1, 'rgb(34, 197, 94)');
                         break
-                    case 3: // signed
+                    case 3: // signed - subtle alternating
                         if (j % 2 === 0) {
-                            grad.addColorStop(0, `rgba(0,0,0,${signColorAlpha})`);
-                            grad.addColorStop(0.9, `rgba(0,0,0,${signColorAlpha})`);
+                            grad.addColorStop(0, `rgba(139, 141, 148, ${signColorAlpha})`);
+                            grad.addColorStop(1, `rgba(139, 141, 148, ${signColorAlpha})`);
                         } else {
-                            grad.addColorStop(0, `rgba(0,0,0,${signColorAlpha-0.3})`);
-                            grad.addColorStop(0.9, `rgba(0,0,0,${signColorAlpha-0.3})`);
+                            grad.addColorStop(0, `rgba(139, 141, 148, ${signColorAlpha - 0.15})`);
+                            grad.addColorStop(1, `rgba(139, 141, 148, ${signColorAlpha - 0.15})`);
                         }
-                        grad.addColorStop(1, 'rgb(186,186,186)');
                         break
-                    case 2: // precommit not included
-                        grad.addColorStop(0, '#85c0f9');
-                        grad.addColorStop(0.8, '#85c0f9');
-                        grad.addColorStop(1, '#0b2641');
+                    case 2: // precommit not included - blue
+                        grad.addColorStop(0, '#60a5fa');
+                        grad.addColorStop(0.7, '#3b82f6');
+                        grad.addColorStop(1, '#1d4ed8');
                         break
-                    case 1: // prevote not included
-                        grad.addColorStop(0, '#381a34');
-                        grad.addColorStop(0.2, '#d06ec7');
-                        grad.addColorStop(1, '#d06ec7');
+                    case 1: // prevote not included - purple
+                        grad.addColorStop(0, '#a855f7');
+                        grad.addColorStop(0.5, '#c084fc');
+                        grad.addColorStop(1, '#a855f7');
                         break
-                    case 0: // missed
-                        grad.addColorStop(0, '#c15600');
+                    case 0: // missed - amber
+                        grad.addColorStop(0, '#f59e0b');
+                        grad.addColorStop(0.5, '#fbbf24');
+                        grad.addColorStop(1, '#d97706');
                         crossThrough = true
                         break
-                    default:
-                        grad.addColorStop(0, 'rgba(127,127,127,0.3)');
+                    default: // no data
+                        grad.addColorStop(0, 'rgba(80, 82, 89, 0.3)');
+                        grad.addColorStop(1, 'rgba(80, 82, 89, 0.15)');
                 }
                 ctx.clearRect((i*gridW)+gridTextW, gridH+(gridH*j), gridW, gridH)
                 ctx.fillStyle = grad
                 ctx.fillRect((i*gridW)+gridTextW, gridH+(gridH*j), gridW, gridH)
 
-                // line between rows
+                // Subtle line between rows
                 if (i > 0) {
                     ctx.beginPath();
                     ctx.moveTo((i * gridW) - gridW + gridTextW, 2 * gridH + (gridH * j) - 0.5)
                     ctx.lineTo((i * gridW) + gridTextW, 2 * gridH + (gridH * j) - 0.5);
                     ctx.closePath();
-                    ctx.strokeStyle = 'rgb(51,51,51)'
-                    ctx.strokeWidth = '5px;'
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)'
+                    ctx.lineWidth = 1
                     ctx.stroke();
                 }
 
-                // visual differentiation for missed blocks
+                // Visual differentiation for missed blocks - white strike
                 if (crossThrough) {
                     ctx.beginPath();
-                    ctx.moveTo((i * gridW) + gridTextW + 1 + gridW / 4, (gridH*j) + (gridH * 2) - gridH / 2);
-                    ctx.lineTo((i * gridW) + gridTextW + gridW - (gridW / 4) - 1, (gridH*j) + (gridH * 2) - gridH / 2);
+                    ctx.moveTo((i * gridW) + gridTextW + 2, (gridH*j) + (gridH * 2) - gridH / 2);
+                    ctx.lineTo((i * gridW) + gridTextW + gridW - 2, (gridH*j) + (gridH * 2) - gridH / 2);
                     ctx.closePath();
-                    ctx.strokeStyle = 'white'
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)'
+                    ctx.lineWidth = 1.5
                     ctx.stroke();
                 }
             }

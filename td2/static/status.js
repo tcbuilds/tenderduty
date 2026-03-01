@@ -1,7 +1,6 @@
 
 async function loadState() {
    const enableLogs = await fetch("logsenabled", {
-   //const enableLogs = await fetch("http://127.0.0.1:8888/logsenabled", {
         method: 'GET',
         mode: 'cors',
         cache: 'no-cache',
@@ -18,7 +17,6 @@ async function loadState() {
     if (showLog.enabled === false) {
         document.getElementById("logContainer").hidden = true
     }
-    //const response = await fetch("http://127.0.0.1:8888/state", {
     const response = await fetch("state", {
         method: 'GET',
         mode: 'cors',
@@ -36,7 +34,6 @@ async function loadState() {
     updateTable(initialState)
     drawSeries(initialState)
     const logResponse = await fetch("logs", {
-    //const logResponse = await fetch("http://127.0.0.1:8888/logs", {
         method: 'GET',
         mode: 'cors',
         cache: 'no-cache',
@@ -59,83 +56,142 @@ async function loadState() {
 }
 
 const blocks = new Map();
+
 function updateTable(status) {
     for (let i = document.getElementById("statusTable").rows.length; i > 0; i--) {
         document.getElementById("statusTable").deleteRow(i-1)
     }
-    const fade = `uk-animation-scale-up`
-    for (let i = 0; i < status.Status.length; i++) {
 
-        let alerts = "&nbsp;"
+    for (let i = 0; i < status.Status.length; i++) {
+        // Alert icon
+        let alerts = ""
         if (status.Status[i].active_alerts > 0 || status.Status[i].last_error !== "") {
+            const alertTitle = `${_.escape(status.Status[i].active_alerts)} active issue${status.Status[i].active_alerts !== 1 ? 's' : ''}`
             if (status.Status[i].last_error !== "") {
                 alerts = `
-            <a href="#modal-center-${status.Status[i].name}" uk-toggle><span uk-icon='warning' uk-tooltip="${_.escape(status.Status[i].active_alerts)} active issues" style='color: darkorange'></span></a>
-            <div id="modal-center-${_.escape(status.Status[i].name)}" class="uk-flex-top" uk-modal>
-                <div class="uk-modal-dialog uk-modal-body uk-margin-auto-vertical uk-background-secondary">
-                    <button class="uk-modal-close-default" type="button" uk-close></button>
-                    <pre class=" uk-background-secondary" style="color: white">${_.escape(status.Status[i].last_error)}</pre>
-                </div>
-            </div>
-            `
+                <button class="alert-icon" onclick="showModal('${_.escape(status.Status[i].last_error).replace(/'/g, "\\'")}', 'Error: ${_.escape(status.Status[i].name)}')" title="${alertTitle}" aria-label="${alertTitle}">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                        <line x1="12" y1="9" x2="12" y2="13"></line>
+                        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                    </svg>
+                </button>`
             } else {
-                alerts = `<span uk-icon='warning' uk-tooltip="${_.escape(status.Status[i].active_alerts)} active issues" style='color: darkorange'></span>`
+                alerts = `
+                <span class="alert-icon" title="${alertTitle}" aria-label="${alertTitle}">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                        <line x1="12" y1="9" x2="12" y2="13"></line>
+                        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                    </svg>
+                </span>`
             }
         }
 
+        // Bonded status badge
         let bonded = ""
         switch (true) {
             case status.Status[i].tombstoned:
-                bonded = "<div class='uk-text-warning'><span uk-icon='ban'></span> <strong>Tombstoned</strong></div>"
+                bonded = `<span class="badge badge--tombstoned">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
+                    </svg>
+                    TOMBSTONED
+                </span>`
                 break
             case status.Status[i].jailed:
-                bonded = "<span uk-icon='warning'></span> <strong>Jailed</strong>"
+                bonded = `<span class="badge badge--jailed">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                        <line x1="12" y1="9" x2="12" y2="13"></line>
+                        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                    </svg>
+                    JAILED
+                </span>`
                 break
             case status.Status[i].bonded:
-                bonded = "<span uk-icon='check'></span>"
+                bonded = `<span class="badge badge--bonded">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                    BONDED
+                </span>`
                 break
             default:
-                bonded = "<span uk-icon='minus-circle'></span> Not active"
+                bonded = `<span class="badge badge--inactive">INACTIVE</span>`
         }
 
-        let window = `<div class="uk-width-1-2" style="text-align: end">`
+        // Uptime calculation - two column layout like original
+        let uptimeHtml = `<div class="uptime-grid">`
+        let uptimeClass = ""
         if (status.Status[i].missed === 0 && status.Status[i].window === 0) {
-            window += "error</div>"
+            uptimeHtml += `<span>error</span>`
         } else if (status.Status[i].missed === 0) {
-            window += `100%</div>`
+            uptimeHtml += `<span>100%</span>`
         } else {
-            window += `${(100 - (status.Status[i].missed / status.Status[i].window) * 100).toFixed(2)}%</div>`
+            const pct = 100 - (status.Status[i].missed / status.Status[i].window) * 100
+            if (pct < 95) {
+                uptimeClass = "text-warning"
+            }
+            uptimeHtml += `<span class="${uptimeClass}">${pct.toFixed(2)}%</span>`
         }
-        window += `<div class="uk-width-1-2">${_.escape(status.Status[i].missed)} / ${_.escape(status.Status[i].window)}</div>`
+        uptimeHtml += `<span class="uptime-detail">${_.escape(status.Status[i].missed)} / ${_.escape(status.Status[i].window)}</span></div>`
 
+        // Node health
         let nodes = `${_.escape(status.Status[i].healthy_nodes)} / ${_.escape(status.Status[i].nodes)}`
+        let nodeClass = "cell-nodes"
         if (status.Status[i].healthy_nodes < status.Status[i].nodes) {
-            nodes = "<strong><span uk-icon='arrow-down' style='color: darkorange'></span>" + nodes + "</strong>"
+            nodeClass += " node-status--degraded"
+            nodes = `<span class="node-status node-status--degraded">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                    <polyline points="19 12 12 19 5 12"></polyline>
+                </svg>
+                ${_.escape(status.Status[i].healthy_nodes)} / ${_.escape(status.Status[i].nodes)}
+            </span>`
         }
 
-        let heightClass = ""
+        // Height with animation class
+        let heightClass = "cell-height"
         if (blocks.get(status.Status[i].chain_id) !== status.Status[i].height){
-            heightClass = fade
+            heightClass += " height-updated"
         }
         blocks.set(status.Status[i].chain_id, status.Status[i].height)
 
-        let r=document.getElementById('statusTable').insertRow(i)
-        r.insertCell(0).innerHTML = `<div>${alerts}</div>`
-        r.insertCell(1).innerHTML = `<div>${_.escape(status.Status[i].name)} (${_.escape(status.Status[i].chain_id)})</div>`
-        r.insertCell(2).innerHTML = `<div class="${heightClass}" style="font-family: monospace; color: #6f6f6f; text-align: start">${_.escape(status.Status[i].height)}</div>`
+        // Build table row
+        let r = document.getElementById('statusTable').insertRow(i)
+
+        // Alert cell
+        r.insertCell(0).innerHTML = alerts
+
+        // Chain name with chain_id
+        r.insertCell(1).innerHTML = `<div class="cell-chain">${_.escape(status.Status[i].name)}<small>${_.escape(status.Status[i].chain_id)}</small></div>`
+
+        // Height
+        r.insertCell(2).innerHTML = `<div class="${heightClass}">${_.escape(status.Status[i].height)}</div>`
+
+        // Moniker
         if (status.Status[i].moniker === "not connected") {
-            r.insertCell(3).innerHTML = `<div class="uk-text-warning">${_.escape(status.Status[i].moniker)}</div>`
-            bonded = "unknown"
+            r.insertCell(3).innerHTML = `<div class="cell-moniker text-warning">${_.escape(status.Status[i].moniker)}</div>`
+            bonded = `<span class="badge badge--inactive">UNKNOWN</span>`
         } else {
-            r.insertCell(3).innerHTML = `<div class='uk-text-truncate'>${_.escape(status.Status[i].moniker.substring(0,24))}</div>`
+            r.insertCell(3).innerHTML = `<div class="cell-moniker">${_.escape(status.Status[i].moniker.substring(0,24))}</div>`
         }
-        r.insertCell(4).innerHTML = `<div style="text-align: center">${bonded}</div>`
-        r.insertCell(5).innerHTML = `<div uk-grid>${window}</div>`
-        r.insertCell(6).innerHTML = `<div class="uk-text-center">${nodes}</div>`
+
+        // Bonded status
+        r.insertCell(4).innerHTML = bonded
+
+        // Uptime
+        r.insertCell(5).innerHTML = uptimeHtml
+
+        // Nodes
+        r.insertCell(6).innerHTML = `<div class="${nodeClass}">${nodes}</div>`
     }
 }
 
 let logs = new Array(1);
+
 function addLogMsg(str) {
     if (logs.length >= 256) {
         logs.pop()
@@ -162,7 +218,6 @@ function connect() {
         event = null
     }
     const socket = new WebSocket(wsProto + location.host + '/ws');
-    //const socket = new WebSocket('ws://127.0.0.1:8888/ws');
     socket.addEventListener('message', function (event) {parse(event)});
     socket.onclose = function(e) {
         console.log('Socket is closed, retrying /ws ...', e.reason);
