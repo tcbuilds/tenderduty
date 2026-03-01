@@ -14,16 +14,19 @@ import (
 	rpchttp "github.com/tendermint/tendermint/rpc/client/http"
 )
 
+// nodeTimeout is the per-node timeout for RPC connection and status checks.
+const nodeTimeout = 10 * time.Second
+
 // newRpc sets up the rpc client used for monitoring. It will try nodes in order until a working node is found.
-// it will also get some initial info on the validator's status.
+// It will also get some initial info on the validator's status.
 func (cc *ChainConfig) newRpc() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	var anyWorking bool // if healthchecks are running, we will skip to the first known good node.
+	var anyWorking bool
+	// if healthchecks are running, we will skip to the first known good node.
 	for _, endpoint := range cc.Nodes {
 		anyWorking = anyWorking || !endpoint.down
 	}
-	// grab the first working endpoint
+	// tryUrl attempts to connect to a single node with its own timeout.
+	// It uses a local candidate client and only promotes it to cc.client on success.
 	tryUrl := func(u string) (msg string, down, syncing bool) {
 		_, err := url.Parse(u)
 		if err != nil {
@@ -32,14 +35,18 @@ func (cc *ChainConfig) newRpc() error {
 			down = true
 			return
 		}
-		cc.client, err = rpchttp.New(u, "/websocket")
+		// Use a local variable so cc.client is not overwritten before verification
+		candidate, err := rpchttp.New(u, "/websocket")
 		if err != nil {
 			msg = fmt.Sprintf("❌ could not connect client for %s: (%s) %s", cc.name, u, err)
 			l(msg)
 			down = true
 			return
 		}
-		status, err := cc.client.Status(ctx)
+		// Each node gets its own fresh timeout context
+		ctx, cancel := context.WithTimeout(context.Background(), nodeTimeout)
+		defer cancel()
+		status, err := candidate.Status(ctx)
 		if err != nil {
 			msg = fmt.Sprintf("❌ could not get status for %s: (%s) %s", cc.name, u, err)
 			down = true
@@ -59,10 +66,14 @@ func (cc *ChainConfig) newRpc() error {
 			l(msg)
 			return
 		}
+		// Node verified healthy; promote the candidate client
+		cc.mtx.Lock()
+		cc.client = candidate
 		cc.noNodes = false
+		cc.mtx.Unlock()
 		return
 	}
-	down := func(endpoint *NodeConfig, msg string) {
+	markDown := func(endpoint *NodeConfig, msg string) {
 		if !endpoint.down {
 			endpoint.down = true
 			endpoint.downSince = time.Now()
@@ -75,7 +86,7 @@ func (cc *ChainConfig) newRpc() error {
 		}
 		if msg, failed, syncing := tryUrl(endpoint.Url); failed {
 			endpoint.syncing = syncing
-			down(endpoint, msg)
+			markDown(endpoint, msg)
 			continue
 		}
 		return nil
@@ -92,7 +103,9 @@ func (cc *ChainConfig) newRpc() error {
 			l("could not find a public endpoint for", cc.ChainId)
 		}
 	}
+	cc.mtx.Lock()
 	cc.noNodes = true
+	cc.mtx.Unlock()
 	alarms.clearAll(cc.name)
 	cc.lastError = "no usable RPC endpoints available for " + cc.ChainId
 	if td.EnableDash {
@@ -119,7 +132,10 @@ func (cc *ChainConfig) newRpc() error {
 
 func (cc *ChainConfig) monitorHealth(ctx context.Context, chainName string) {
 	tick := time.NewTicker(time.Minute)
-	if cc.client == nil {
+	cc.mtx.RLock()
+	needsRpc := cc.client == nil
+	cc.mtx.RUnlock()
+	if needsRpc {
 		_ = cc.newRpc()
 	}
 
@@ -151,8 +167,9 @@ func (cc *ChainConfig) monitorHealth(ctx context.Context, chainName string) {
 					c, e := rpchttp.New(node.Url, "/websocket")
 					if e != nil {
 						alert(e.Error())
+						return
 					}
-					cwt, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					cwt, cancel := context.WithTimeout(context.Background(), nodeTimeout)
 					status, e := c.Status(cwt)
 					cancel()
 					if e != nil {
@@ -169,7 +186,7 @@ func (cc *ChainConfig) monitorHealth(ctx context.Context, chainName string) {
 						return
 					}
 
-					// node's OK, clear the note
+					// Node is healthy, clear the alert state
 					if node.down {
 						node.lastMsg = ""
 						node.wasDown = true
@@ -178,12 +195,17 @@ func (cc *ChainConfig) monitorHealth(ctx context.Context, chainName string) {
 					node.down = false
 					node.syncing = false
 					node.downSince = time.Unix(0, 0)
+					cc.mtx.Lock()
 					cc.noNodes = false
+					cc.mtx.Unlock()
 					l(fmt.Sprintf("🟢 %-12s node %s is healthy", chainName, node.Url))
 				}(node)
 			}
 
-			if cc.client == nil {
+			cc.mtx.RLock()
+			needsRpc = cc.client == nil
+			cc.mtx.RUnlock()
+			if needsRpc {
 				e := cc.newRpc()
 				if e != nil {
 					l("💥", cc.ChainId, e)
@@ -215,17 +237,22 @@ func (c *Config) pingHealthcheck() {
 	}
 
 	ticker := time.NewTicker(c.Healthcheck.PingRate * time.Second)
+	client := &http.Client{Timeout: 10 * time.Second}
 
 	go func() {
+		defer ticker.Stop()
 		for {
 			select {
+			case <-c.ctx.Done():
+				return
 			case <-ticker.C:
-				_, err := http.Get(c.Healthcheck.PingURL)
+				resp, err := client.Get(c.Healthcheck.PingURL)
 				if err != nil {
 					l(fmt.Sprintf("❌ Failed to ping healthcheck URL: %s", err.Error()))
-				} else {
-					l(fmt.Sprintf("🏓 Successfully pinged healthcheck URL: %s", c.Healthcheck.PingURL))
+					continue
 				}
+				_ = resp.Body.Close()
+				l(fmt.Sprintf("🏓 Successfully pinged healthcheck URL: %s", c.Healthcheck.PingURL))
 			}
 		}
 	}()
@@ -238,18 +265,19 @@ var endpointRex = regexp.MustCompile(`//([^/:]+)(:\d+)?`)
 // The cosmos.directory requires them. This is a workaround to get the actual URL for the server behind their proxy.
 // The RPC base URL will return links endpoints, and we can parse this to guess the original URL.
 func guessPublicEndpoint(u string) string {
-	resp, err := http.Get(u + "/")
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(u + "/")
 	if err != nil {
 		return u
 	}
+	defer resp.Body.Close()
+
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return u
 	}
-	_ = resp.Body.Close()
 	matches := endpointRex.FindStringSubmatch(string(b))
 	if len(matches) < 2 {
-		// didn't work
 		return u
 	}
 	proto := "https://"

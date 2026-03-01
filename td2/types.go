@@ -83,6 +83,8 @@ type savedState struct {
 // ChainConfig represents a validator to be monitored on a chain, it is somewhat of a misnomer since multiple
 // validators can be monitored on a single chain.
 type ChainConfig struct {
+	// mtx protects concurrent access to client and noNodes from newRpc and monitorHealth
+	mtx            sync.RWMutex
 	name           string
 	wsclient       *TmConn       // custom websocket client to work around wss:// bugs in tendermint
 	client         *rpchttp.HTTP // legit tendermint client
@@ -306,22 +308,22 @@ func validateConfig(c *Config) (fatal bool, problems []string) {
 			v.Alerts.Pagerduty.DefaultSeverity = c.Pagerduty.DefaultSeverity
 		}
 
-		switch {
-		case v.Alerts.Slack.Enabled && !c.Slack.Enabled:
+		if v.Alerts.Slack.Enabled && !c.Slack.Enabled {
 			problems = append(problems, fmt.Sprintf("warn: %20s is configured for slack alerts, but it is not enabled", k))
-			fallthrough
-		case v.Alerts.Discord.Enabled && !c.Discord.Enabled:
+		}
+		if v.Alerts.Discord.Enabled && !c.Discord.Enabled {
 			problems = append(problems, fmt.Sprintf("warn: %20s is configured for discord alerts, but it is not enabled", k))
-			fallthrough
-		case v.Alerts.Pagerduty.Enabled && !c.Pagerduty.Enabled:
+		}
+		if v.Alerts.Pagerduty.Enabled && !c.Pagerduty.Enabled {
 			problems = append(problems, fmt.Sprintf("warn: %20s is configured for pagerduty alerts, but it is not enabled", k))
-			fallthrough
-		case v.Alerts.Telegram.Enabled && !c.Telegram.Enabled:
+		}
+		if v.Alerts.Telegram.Enabled && !c.Telegram.Enabled {
 			problems = append(problems, fmt.Sprintf("warn: %20s is configured for telegram alerts, but it is not enabled", k))
-		case !v.Alerts.ConsecutiveAlerts && !v.Alerts.PercentageAlerts && !v.Alerts.AlertIfInactive && !v.Alerts.AlertIfNoServers:
+		}
+		if !v.Alerts.ConsecutiveAlerts && !v.Alerts.PercentageAlerts && !v.Alerts.AlertIfInactive && !v.Alerts.AlertIfNoServers {
 			problems = append(problems, fmt.Sprintf("warn: %20s has no alert types configured", k))
-			fallthrough
-		case !v.Alerts.Pagerduty.Enabled && !v.Alerts.Discord.Enabled && !v.Alerts.Telegram.Enabled && !v.Alerts.Slack.Enabled:
+		}
+		if !v.Alerts.Pagerduty.Enabled && !v.Alerts.Discord.Enabled && !v.Alerts.Telegram.Enabled && !v.Alerts.Slack.Enabled {
 			problems = append(problems, fmt.Sprintf("warn: %20s has no notifications configured", k))
 		}
 		if td.EnableDash {
@@ -369,14 +371,9 @@ func loadChainConfig(yamlFile string) (*ChainConfig, error) {
 	if e != nil {
 		return nil, e
 	}
-	i, e := f.Stat()
-	if e != nil {
-		_ = f.Close()
-		return nil, e
-	}
-	b := make([]byte, int(i.Size()))
-	_, e = f.Read(b)
-	_ = f.Close()
+	defer f.Close()
+
+	b, e := io.ReadAll(f)
 	if e != nil {
 		return nil, e
 	}
@@ -397,15 +394,17 @@ func loadConfig(yamlFile, stateFile, chainConfigDirectory string, password *stri
 			return nil, errors.New("a password is required if loading a remote configuration")
 		}
 		//#nosec -- url is specified on command line
-		resp, err := http.Get(yamlFile)
+		client := &http.Client{Timeout: 30 * time.Second}
+		resp, err := client.Get(yamlFile)
 		if err != nil {
 			return nil, err
 		}
+		defer resp.Body.Close()
+
 		b, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return nil, err
 		}
-		_ = resp.Body.Close()
 		log.Printf("downloaded %d bytes from %s", len(b), yamlFile)
 		decrypted, err := decrypt(b, *password)
 		if err != nil {
@@ -424,14 +423,9 @@ func loadConfig(yamlFile, stateFile, chainConfigDirectory string, password *stri
 		if e != nil {
 			return nil, e
 		}
-		i, e := f.Stat()
-		if e != nil {
-			_ = f.Close()
-			return nil, e
-		}
-		b := make([]byte, int(i.Size()))
-		_, e = f.Read(b)
-		_ = f.Close()
+		defer f.Close()
+
+		b, e := io.ReadAll(f)
 		if e != nil {
 			return nil, e
 		}
@@ -494,21 +488,23 @@ func loadConfig(yamlFile, stateFile, chainConfigDirectory string, password *stri
 		notifyMux:     sync.RWMutex{},
 	}
 
+	saved := &savedState{}
+
+	// State file may not exist on first run, so open failure is not fatal
 	//#nosec -- variable specified on command line
 	sf, e := os.OpenFile(stateFile, os.O_RDONLY, 0600)
 	if e != nil {
 		l("could not load saved state", e.Error())
+	} else {
+		stateBytes, readErr := io.ReadAll(sf)
+		_ = sf.Close()
+		if readErr != nil {
+			l("could not read saved state", readErr.Error())
+		} else if unmarshalErr := json.Unmarshal(stateBytes, saved); unmarshalErr != nil {
+			l("could not unmarshal saved state", unmarshalErr.Error())
+		}
 	}
-	b, e := io.ReadAll(sf)
-	_ = sf.Close()
-	if e != nil {
-		l("could not read saved state", e.Error())
-	}
-	saved := &savedState{}
-	e = json.Unmarshal(b, saved)
-	if e != nil {
-		l("could not unmarshal saved state", e.Error())
-	}
+
 	for k, v := range saved.Blocks {
 		if c.Chains[k] != nil {
 			c.Chains[k].blocksResults = v
