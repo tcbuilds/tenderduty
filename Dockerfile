@@ -1,6 +1,7 @@
 # 1st stage, build app
 FROM golang:1.22-bookworm as builder
-RUN apt-get update && apt-get -y upgrade && apt-get install -y upx-ucl
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get -y upgrade && apt-get install -y upx
 COPY . /build/app
 WORKDIR /build/app
 
