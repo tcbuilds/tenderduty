@@ -1,14 +1,9 @@
 # 1st stage, build app
 FROM golang:1.22-bookworm as builder
-ENV DEBIAN_FRONTEND=noninteractive
-ENV UPX_VERSION=4.2.2
-RUN apt-get update && apt-get -y upgrade && \
-    curl -sSL https://github.com/upx/upx/releases/download/v${UPX_VERSION}/upx-${UPX_VERSION}-amd64_linux.tar.xz | tar -xJ --strip-components=1 -C /usr/local/bin upx-${UPX_VERSION}-amd64_linux/upx
 COPY . /build/app
 WORKDIR /build/app
 
 RUN go get ./... && go build -ldflags "-s -w" -trimpath -o tenderduty main.go
-RUN upx tenderduty && upx -t tenderduty
 
 # 2nd stage, create a user to copy, and install libraries needed if connecting to upstream TLS server
 # we don't want the /lib and /lib64 from the go container cause it has more than we need.
