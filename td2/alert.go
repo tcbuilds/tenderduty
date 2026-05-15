@@ -477,7 +477,8 @@ func (cc *ChainConfig) watch() {
 				false,
 				&cc.valInfo.Valcons,
 			)
-		} else if cc.Alerts.StalledAlerts && cc.lastBlockAlarm && cc.lastBlockTime.IsZero() {
+		} else if cc.Alerts.StalledAlerts && cc.lastBlockAlarm && !cc.lastBlockTime.IsZero() &&
+			!cc.lastBlockTime.Before(time.Now().Add(time.Duration(-cc.Alerts.Stalled)*time.Minute)) {
 			cc.lastBlockAlarm = false
 			td.alert(
 				cc.name,
