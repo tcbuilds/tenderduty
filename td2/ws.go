@@ -9,6 +9,7 @@ import (
 	dash "github.com/blockpane/tenderduty/v2/td2/dashboard"
 	"github.com/gorilla/websocket"
 	pbtypes "github.com/tendermint/tendermint/proto/tendermint/types"
+	rpchttp "github.com/tendermint/tendermint/rpc/client/http"
 	"log"
 	"net/url"
 	"strconv"
@@ -67,32 +68,51 @@ func (wsr WsReply) Value() []byte {
 	return wsr.Result.Data.Value
 }
 
-// WsRun is our main entrypoint for the websocket listener. In the Run loop it will block, and if it exits force a
-// renegotiation for a new client.
-func (cc *ChainConfig) WsRun() {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	var err error
+// Limits for how long WsRun waits for a usable RPC client before giving up.
+const (
+	wsClientWaitTimeout  = 2 * time.Minute
+	wsClientPollInterval = 30 * time.Second
+)
+
+// waitForClient waits until the active RPC client and the validator's consensus key are available and reports
+// whether they became available within wsClientWaitTimeout. On timeout it returns the last client seen, which may
+// be nil, so the caller can blame the node that never produced usable validator info.
+func (cc *ChainConfig) waitForClient() (*rpchttp.HTTP, bool) {
 	started := time.Now()
 	for {
-		// wait until our RPC client is connected and running. We will use the same URL for the websocket
-		if cc.client == nil || cc.valInfo == nil || cc.valInfo.Conspub == nil {
-			if started.Before(time.Now().Add(-2 * time.Minute)) {
-				l(cc.name, "websocket client timed out waiting for a working rpc endpoint, restarting")
-				return
-			}
-			l("⏰ waiting for a healthy client for", cc.ChainId)
-			time.Sleep(30 * time.Second)
-			continue
+		client := cc.activeClient()
+		if client != nil && cc.valInfo != nil && cc.valInfo.Conspub != nil {
+			return client, true
 		}
-		break
+		if time.Since(started) > wsClientWaitTimeout {
+			l(cc.name, "websocket client timed out waiting for a working rpc endpoint, restarting")
+			return client, false
+		}
+		l("⏰ waiting for a healthy client for", cc.ChainId)
+		time.Sleep(wsClientPollInterval)
 	}
+}
 
-	cc.wsclient, err = NewClient(cc.client.Remote(), true)
+// WsRun is our main entrypoint for the websocket listener. In the Run loop it will block, and if it exits force a
+// renegotiation for a new client. It returns the URL of the node whose websocket it dialed (or, after timing out,
+// the node it was waiting on; empty if there was none) so the caller blames the node that actually failed even if
+// cc.client was rotated to another node in the meantime.
+func (cc *ChainConfig) WsRun() string {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	client, isReady := cc.waitForClient()
+	if !isReady {
+		if client == nil {
+			return ""
+		}
+		return client.Remote()
+	}
+	dialedURL := client.Remote()
+	var err error
+	cc.wsclient, err = NewClient(dialedURL, true)
 	if err != nil {
 		l(err)
-		cancel()
-		return
+		return dialedURL
 	}
 	defer cc.wsclient.Close()
 	err = cc.wsclient.SetCompressionLevel(3)
@@ -249,13 +269,13 @@ func (cc *ChainConfig) WsRun() {
 			break
 		}
 	}
-	l(fmt.Sprintf("⚙️ %-12s watching for NewBlock and Vote events via %s", cc.ChainId, cc.client.Remote()))
+	l(fmt.Sprintf("⚙️ %-12s watching for NewBlock and Vote events via %s", cc.ChainId, dialedURL))
 	for {
 		select {
-		case <-cc.client.Quit():
+		case <-client.Quit():
 			cancel()
 		case <-ctx.Done():
-			return
+			return dialedURL
 		}
 	}
 }

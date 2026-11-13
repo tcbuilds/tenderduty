@@ -120,15 +120,9 @@ func Run(configFile, stateFile, chainConfigDirectory string, password *string) e
 					l("🛑", cc.ChainId, e)
 				}
 				blockBefore := cc.lastBlockNum
-				cc.WsRun()
-				// Record the URL that just failed so newRpc tries a different node
-				if client := cc.activeClient(); client != nil {
-					cc.recordFailedWsURL(client.Remote())
-				}
-				// Only reset if blocks were actually received (WS was truly working)
-				if cc.lastBlockNum > blockBefore {
+				dialedURL := cc.WsRun()
+				if cc.recordWsExit(dialedURL, blockBefore) {
 					backoff = initialBackoff
-					cc.resetFailedWsURLs()
 				}
 				l(cc.ChainId, "🌀 websocket exited! Restarting monitoring")
 				l(fmt.Sprintf("⏳ %s retrying in %s", cc.ChainId, backoff))

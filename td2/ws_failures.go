@@ -34,3 +34,17 @@ func (cc *ChainConfig) resetFailedWsURLs() {
 	defer cc.wsFailMtx.Unlock()
 	cc.failedWsUrls = make(map[string]bool)
 }
+
+// recordWsExit handles a websocket that stopped. If blocks arrived since blockBefore the websocket was working, so
+// recorded failures are forgotten and true is returned. Otherwise dialedURL, the node the websocket actually
+// dialed (not whatever cc.client points at now), is recorded as failed so newRpc tries a different node.
+func (cc *ChainConfig) recordWsExit(dialedURL string, blockBefore int64) bool {
+	if cc.lastBlockNum > blockBefore {
+		cc.resetFailedWsURLs()
+		return true
+	}
+	if dialedURL != "" {
+		cc.recordFailedWsURL(dialedURL)
+	}
+	return false
+}
