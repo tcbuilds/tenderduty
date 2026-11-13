@@ -59,31 +59,39 @@ func (cc *ChainConfig) markNodeDown(nodeURL, msg string) bool {
 	return false
 }
 
-// rotateClient marks the node behind the active RPC client down because of cause and switches to another usable
-// node using newRpc, which skips nodes that are marked down while any healthy node remains.
-func (cc *ChainConfig) rotateClient(cause error) error {
-	client := cc.activeClient()
-	if client == nil {
+// rotateClient switches the active RPC client away from usedClient, the client whose query failed with cause, and
+// marks its node down. If cc.client was already replaced (for example by the run loop) the failure belongs to a
+// node that is no longer active, so nothing is marked down and the caller should simply retry on the current client.
+func (cc *ChainConfig) rotateClient(usedClient *rpchttp.HTTP, cause error) error {
+	if usedClient == nil {
 		return errors.New("no active rpc client to rotate away from")
 	}
-	remote := client.Remote()
+	cc.rpcSetupMtx.Lock()
+	defer cc.rpcSetupMtx.Unlock()
+	remote := usedClient.Remote()
+	if cc.activeClient() != usedClient {
+		l(fmt.Sprintf("🔀 %-12s RPC client already moved away from %s, retrying on the current node", cc.name, remote))
+		return nil
+	}
 	cc.markNodeDown(remote, fmt.Sprintf("%-12s node %s is rate limited or returned a non JSON-RPC response", cc.name, remote))
 	l(fmt.Sprintf("🔀 %-12s rotating RPC client away from %s: %v", cc.name, remote, cause))
-	if err := cc.newRpc(); err != nil {
-		return fmt.Errorf("rotating RPC client away from %s: %w", remote, err)
+	if !cc.selectUsableNode() {
+		cc.reportNoNodes()
+		return fmt.Errorf("rotating RPC client away from %s: no usable endpoints available for %s", remote, cc.ChainId)
 	}
 	return nil
 }
 
-// getValInfoWithRotation fetches validator info and, when the active node returns an unusable response, marks it
-// down, rotates to another node and retries once so a rate limited node is not queried in a loop.
+// getValInfoWithRotation fetches validator info and, when the queried node returns an unusable response, rotates
+// away from that node and retries once on the active client so a rate limited node is not queried in a loop.
 func (cc *ChainConfig) getValInfoWithRotation(first bool) error {
-	err := cc.GetValInfo(first)
+	client := cc.activeClient()
+	err := cc.getValInfoFrom(client, first)
 	if !isUnusableResponseError(err) {
 		return err
 	}
-	if err = cc.rotateClient(err); err != nil {
-		return err
+	if rotateErr := cc.rotateClient(client, err); rotateErr != nil {
+		return fmt.Errorf("validator info query failed (%v) and %w", err, rotateErr)
 	}
 	return cc.GetValInfo(first)
 }

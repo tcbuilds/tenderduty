@@ -218,11 +218,74 @@ func TestGetValInfoWithRotationPassesThroughOtherErrors(t *testing.T) {
 	}
 }
 
-func TestRotateClientWithoutClient(t *testing.T) {
-	cc := &ChainConfig{}
-	if err := cc.rotateClient(errRateLimited); err == nil {
-		t.Fatal("rotateClient() error = nil, want error without an active client")
+func TestRotateClient(t *testing.T) {
+	tests := []struct {
+		name            string
+		swapBeforehand  bool
+		nilUsedClient   bool
+		wantErr         bool
+		wantLimitedDown bool
+		wantHealthy     bool
+	}{
+		{"active client rotates to healthy node", false, false, false, true, true},
+		{"client already swapped is retried, not marked down", true, false, false, false, true},
+		{"no used client", false, true, true, false, false},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fixture := newRotationFixture(t, true)
+			usedClient := fixture.cc.client
+			if tt.nilUsedClient {
+				usedClient = nil
+			}
+			if tt.swapBeforehand {
+				fixture.cc.client = newTestClient(t, fixture.healthyURL)
+			}
+			swappedClient := fixture.cc.client
+			err := fixture.cc.rotateClient(usedClient, errRateLimited)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("rotateClient() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if fixture.limited.down != tt.wantLimitedDown {
+				t.Errorf("used node down = %v, want %v", fixture.limited.down, tt.wantLimitedDown)
+			}
+			if got := fixture.cc.client.Remote() == fixture.healthyURL; got != tt.wantHealthy {
+				t.Errorf("active client = %s, want healthy node %v", fixture.cc.client.Remote(), tt.wantHealthy)
+			}
+			if tt.swapBeforehand && (fixture.cc.client != swappedClient || fixture.cc.Nodes[1].down) {
+				t.Error("rotateClient replaced or marked down a client it did not use")
+			}
+		})
+	}
+}
+
+// TestGetValInfoWithRotationClientSwappedDuringQuery has the run loop swap cc.client while the query to the rate
+// limited node is in flight. The stale node must not be marked down and the retry must use the new client.
+func TestGetValInfoWithRotationClientSwappedDuringQuery(t *testing.T) {
+	fixture := newRotationFixture(t, true)
+	cc := fixture.cc
+	healthyClient := newTestClient(t, fixture.healthyURL)
+	staleServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		cc.mtx.Lock()
+		cc.client = healthyClient
+		cc.mtx.Unlock()
+		rateLimitedNode(writer, request)
+	}))
+	t.Cleanup(staleServer.Close)
+	stale := &NodeConfig{Url: staleServer.URL}
+	cc.Nodes = append(cc.Nodes, stale)
+	cc.client = newTestClient(t, staleServer.URL)
+
+	if err := cc.getValInfoWithRotation(false); err != nil {
+		t.Fatalf("getValInfoWithRotation() error = %v", err)
+	}
+	if stale.down || cc.Nodes[1].down {
+		t.Errorf("nodes marked down: stale %v, healthy %v; want neither", stale.down, cc.Nodes[1].down)
+	}
+	if cc.activeClient() != healthyClient {
+		t.Errorf("active client = %s, want the swapped-in %s", cc.activeClient().Remote(), fixture.healthyURL)
+	}
+	assertValInfo(t, *cc.valInfo, fixture.healthyInfo)
 }
 
 func TestSleepContext(t *testing.T) {

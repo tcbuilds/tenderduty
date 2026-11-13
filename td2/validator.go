@@ -14,6 +14,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/bech32"
 	slashing "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	staking "github.com/cosmos/cosmos-sdk/x/staking/types"
+	rpchttp "github.com/tendermint/tendermint/rpc/client/http"
 )
 
 // valInfoTimeout bounds the total time spent on the queries performed by GetValInfo.
@@ -53,9 +54,11 @@ type stakingValidator struct {
 // succeed, so a transient RPC failure keeps the last known good values instead of making an active validator look
 // inactive (which would also disable missed block tracking).
 func (cc *ChainConfig) GetValInfo(first bool) error {
-	cc.mtx.RLock()
-	client := cc.client
-	cc.mtx.RUnlock()
+	return cc.getValInfoFrom(cc.activeClient(), first)
+}
+
+// getValInfoFrom is GetValInfo against a specific client, letting callers know exactly which node was queried.
+func (cc *ChainConfig) getValInfoFrom(client *rpchttp.HTTP, first bool) error {
 	if client == nil {
 		return errors.New("nil rpc client")
 	}
