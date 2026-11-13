@@ -85,7 +85,12 @@ type savedState struct {
 type ChainConfig struct {
 	// mtx protects concurrent access to client and noNodes from newRpc and monitorHealth, and guards
 	// replacement of the valInfo pointer by GetValInfo
-	mtx            sync.RWMutex
+	mtx sync.RWMutex
+	// rpcSetupMtx serialises newRpc and node rotation so only one goroutine selects a client at a time. It is
+	// acquired before mtx or wsFailMtx and never while holding either of them.
+	rpcSetupMtx sync.Mutex
+	// wsFailMtx guards failedWsUrls. It is a leaf lock: no other lock is acquired while holding it.
+	wsFailMtx      sync.Mutex
 	name           string
 	wsclient       *TmConn         // custom websocket client to work around wss:// bugs in tendermint
 	client         *rpchttp.HTTP   // legit tendermint client

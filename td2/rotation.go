@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	rpchttp "github.com/tendermint/tendermint/rpc/client/http"
 )
 
 // Markers found in tendermint JSON-RPC client errors when a node's reply is not a JSON-RPC envelope, for example
@@ -28,6 +30,13 @@ func isUnusableResponseError(err error) bool {
 	}
 	message := strings.ToLower(err.Error())
 	return strings.Contains(message, unmarshalFailureMarker) || strings.Contains(message, tooManyRequestsMarker)
+}
+
+// activeClient returns the RPC client currently used for queries and the websocket, or nil if none is set.
+func (cc *ChainConfig) activeClient() *rpchttp.HTTP {
+	cc.mtx.RLock()
+	defer cc.mtx.RUnlock()
+	return cc.client
 }
 
 // markDown flags the node as down, recording when it first went down and why.
@@ -53,9 +62,7 @@ func (cc *ChainConfig) markNodeDown(nodeURL, msg string) bool {
 // rotateClient marks the node behind the active RPC client down because of cause and switches to another usable
 // node using newRpc, which skips nodes that are marked down while any healthy node remains.
 func (cc *ChainConfig) rotateClient(cause error) error {
-	cc.mtx.RLock()
-	client := cc.client
-	cc.mtx.RUnlock()
+	client := cc.activeClient()
 	if client == nil {
 		return errors.New("no active rpc client to rotate away from")
 	}

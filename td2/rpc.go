@@ -23,132 +23,138 @@ const nodeTimeout = 10 * time.Second
 const valInfoRefreshDelay = 2 * time.Second
 
 // newRpc sets up the rpc client used for monitoring. It will try nodes in order until a working node is found.
-// It will also get some initial info on the validator's status.
+// When no node is usable it flags the chain as having no nodes and reports that on the dashboard. Calls are
+// serialised by rpcSetupMtx because both the run loop and the health monitor (node rotation) may call it.
 func (cc *ChainConfig) newRpc() error {
+	cc.rpcSetupMtx.Lock()
+	defer cc.rpcSetupMtx.Unlock()
+	if cc.selectUsableNode() {
+		return nil
+	}
+	cc.reportNoNodes()
+	return errors.New("no usable endpoints available for " + cc.ChainId)
+}
+
+// selectUsableNode promotes the first verified node to cc.client and reports whether one was found. Nodes whose
+// websocket recently failed are only tried after all others. The caller must hold rpcSetupMtx.
+func (cc *ChainConfig) selectUsableNode() bool {
 	var anyWorking bool
 	// if healthchecks are running, we will skip to the first known good node.
 	for _, endpoint := range cc.Nodes {
 		anyWorking = anyWorking || !endpoint.down
 	}
-	// tryUrl attempts to connect to a single node with its own timeout.
-	// It uses a local candidate client and only promotes it to cc.client on success.
-	tryUrl := func(u string) (msg string, down, syncing bool) {
-		_, err := url.Parse(u)
-		if err != nil {
-			msg = fmt.Sprintf("❌ could not parse url %s: (%s) %s", cc.name, u, err)
-			l(msg)
-			down = true
-			return
-		}
-		// Use a local variable so cc.client is not overwritten before verification
-		candidate, err := rpchttp.New(u, "/websocket")
-		if err != nil {
-			msg = fmt.Sprintf("❌ could not connect client for %s: (%s) %s", cc.name, u, err)
-			l(msg)
-			down = true
-			return
-		}
-		// Each node gets its own fresh timeout context
-		ctx, cancel := context.WithTimeout(context.Background(), nodeTimeout)
-		defer cancel()
-		status, err := candidate.Status(ctx)
-		if err != nil {
-			msg = fmt.Sprintf("❌ could not get status for %s: (%s) %s", cc.name, u, err)
-			down = true
-			l(msg)
-			return
-		}
-		if status.NodeInfo.Network != cc.ChainId {
-			msg = fmt.Sprintf("chain id %s on %s does not match, expected %s, skipping", status.NodeInfo.Network, u, cc.ChainId)
-			down = true
-			l(msg)
-			return
-		}
-		if status.SyncInfo.CatchingUp {
-			msg = fmt.Sprint("🐢 node is not synced, skipping ", u)
-			syncing = true
-			down = true
-			l(msg)
-			return
-		}
-		// Node verified healthy; promote the candidate client
-		cc.mtx.Lock()
-		cc.client = candidate
-		cc.noNodes = false
-		cc.mtx.Unlock()
-		return
+	// Pass 1: try nodes not in the failed WebSocket set. This prevents getting stuck on nodes whose RPC passes but
+	// whose WebSocket never delivers events.
+	if cc.tryNodes(anyWorking, false) {
+		return true
 	}
-	// Pass 1: try nodes not in the failed WebSocket set.
-	// This prevents getting stuck on nodes whose RPC passes but whose
-	// WebSocket never delivers events.
+	// Pass 2: if no untried node worked, try failed WS nodes as fallback.
+	if cc.hasFailedWsURLs() && cc.tryNodes(anyWorking, true) {
+		return true
+	}
+	return cc.PublicFallback && cc.tryPublicFallback()
+}
+
+// tryNodes tries each configured node whose websocket failure state matches wsFailed, skipping nodes marked down
+// while any node is still working, and marks nodes that fail verification as down.
+func (cc *ChainConfig) tryNodes(anyWorking, wsFailed bool) bool {
 	for _, endpoint := range cc.Nodes {
 		if anyWorking && endpoint.down {
 			continue
 		}
-		if cc.failedWsUrls[endpoint.Url] {
+		if cc.isWsURLFailed(endpoint.Url) != wsFailed {
 			continue
 		}
-		if msg, failed, syncing := tryUrl(endpoint.Url); failed {
+		if msg, failed, syncing := cc.tryNode(endpoint.Url); failed {
 			endpoint.syncing = syncing
 			endpoint.markDown(msg)
 			continue
 		}
-		return nil
+		return true
 	}
-	// Pass 2: if no untried node worked, try failed WS nodes as fallback.
-	if len(cc.failedWsUrls) > 0 {
-		for _, endpoint := range cc.Nodes {
-			if !cc.failedWsUrls[endpoint.Url] {
-				continue
-			}
-			if anyWorking && endpoint.down {
-				continue
-			}
-			if msg, failed, syncing := tryUrl(endpoint.Url); failed {
-				endpoint.syncing = syncing
-				endpoint.markDown(msg)
-				continue
-			}
-			return nil
-		}
+	return false
+}
+
+// tryPublicFallback attempts to use a public endpoint from the chain registry.
+func (cc *ChainConfig) tryPublicFallback() bool {
+	u, ok := getRegistryUrl(cc.ChainId)
+	if !ok {
+		l("could not find a public endpoint for", cc.ChainId)
+		return false
 	}
-	if cc.PublicFallback {
-		if u, ok := getRegistryUrl(cc.ChainId); ok {
-			node := guessPublicEndpoint(u)
-			l(cc.ChainId, "⛑ attemtping to use public fallback node", node)
-			if _, kk, _ := tryUrl(node); !kk {
-				l(cc.ChainId, "⛑ connected to public endpoint", node)
-				return nil
-			}
-		} else {
-			l("could not find a public endpoint for", cc.ChainId)
-		}
+	node := guessPublicEndpoint(u)
+	l(cc.ChainId, "⛑ attemtping to use public fallback node", node)
+	if _, failed, _ := cc.tryNode(node); failed {
+		return false
 	}
+	l(cc.ChainId, "⛑ connected to public endpoint", node)
+	return true
+}
+
+// tryNode attempts to connect to a single node with its own timeout. It uses a local candidate client and only
+// promotes it to cc.client once the node is verified to be on the right chain and synced.
+func (cc *ChainConfig) tryNode(u string) (msg string, down, syncing bool) {
+	if _, err := url.Parse(u); err != nil {
+		msg = fmt.Sprintf("❌ could not parse url %s: (%s) %s", cc.name, u, err)
+		l(msg)
+		return msg, true, false
+	}
+	candidate, err := rpchttp.New(u, "/websocket")
+	if err != nil {
+		msg = fmt.Sprintf("❌ could not connect client for %s: (%s) %s", cc.name, u, err)
+		l(msg)
+		return msg, true, false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), nodeTimeout)
+	defer cancel()
+	status, err := candidate.Status(ctx)
+	switch {
+	case err != nil:
+		msg = fmt.Sprintf("❌ could not get status for %s: (%s) %s", cc.name, u, err)
+	case status.NodeInfo.Network != cc.ChainId:
+		msg = fmt.Sprintf("chain id %s on %s does not match, expected %s, skipping", status.NodeInfo.Network, u, cc.ChainId)
+	case status.SyncInfo.CatchingUp:
+		msg = fmt.Sprint("🐢 node is not synced, skipping ", u)
+		syncing = true
+	}
+	if msg != "" {
+		l(msg)
+		return msg, true, syncing
+	}
+	cc.mtx.Lock()
+	cc.client = candidate
+	cc.noNodes = false
+	cc.mtx.Unlock()
+	return "", false, false
+}
+
+// reportNoNodes flags the chain as having no usable RPC node, clears its alarms and updates the dashboard.
+func (cc *ChainConfig) reportNoNodes() {
 	cc.mtx.Lock()
 	cc.noNodes = true
 	cc.mtx.Unlock()
 	alarms.clearAll(cc.name)
 	cc.lastError = "no usable RPC endpoints available for " + cc.ChainId
-	if td.EnableDash {
-		td.updateChan <- &dash.ChainStatus{
-			MsgType:      "status",
-			Name:         cc.name,
-			ChainId:      cc.ChainId,
-			Moniker:      cc.valInfo.Moniker,
-			Bonded:       cc.valInfo.Bonded,
-			Jailed:       cc.valInfo.Jailed,
-			Tombstoned:   cc.valInfo.Tombstoned,
-			Missed:       cc.valInfo.Missed,
-			Window:       cc.valInfo.Window,
-			Nodes:        len(cc.Nodes),
-			HealthyNodes: 0,
-			ActiveAlerts: 1,
-			Height:       0,
-			LastError:    cc.lastError,
-			Blocks:       cc.blocksResults,
-		}
+	if !td.EnableDash {
+		return
 	}
-	return errors.New("no usable endpoints available for " + cc.ChainId)
+	td.updateChan <- &dash.ChainStatus{
+		MsgType:      "status",
+		Name:         cc.name,
+		ChainId:      cc.ChainId,
+		Moniker:      cc.valInfo.Moniker,
+		Bonded:       cc.valInfo.Bonded,
+		Jailed:       cc.valInfo.Jailed,
+		Tombstoned:   cc.valInfo.Tombstoned,
+		Missed:       cc.valInfo.Missed,
+		Window:       cc.valInfo.Window,
+		Nodes:        len(cc.Nodes),
+		HealthyNodes: 0,
+		ActiveAlerts: 1,
+		Height:       0,
+		LastError:    cc.lastError,
+		Blocks:       cc.blocksResults,
+	}
 }
 
 func (cc *ChainConfig) monitorHealth(ctx context.Context, chainName string) {
