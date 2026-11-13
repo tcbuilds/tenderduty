@@ -18,6 +18,10 @@ import (
 // nodeTimeout is the per-node timeout for RPC connection and status checks.
 const nodeTimeout = 10 * time.Second
 
+// valInfoRefreshDelay spaces the validator queries from the per-minute health check burst, which also hits the
+// active node, so rate limiting proxies are less likely to reject them.
+const valInfoRefreshDelay = 2 * time.Second
+
 // newRpc sets up the rpc client used for monitoring. It will try nodes in order until a working node is found.
 // It will also get some initial info on the validator's status.
 func (cc *ChainConfig) newRpc() error {
@@ -74,13 +78,6 @@ func (cc *ChainConfig) newRpc() error {
 		cc.mtx.Unlock()
 		return
 	}
-	markDown := func(endpoint *NodeConfig, msg string) {
-		if !endpoint.down {
-			endpoint.down = true
-			endpoint.downSince = time.Now()
-		}
-		endpoint.lastMsg = msg
-	}
 	// Pass 1: try nodes not in the failed WebSocket set.
 	// This prevents getting stuck on nodes whose RPC passes but whose
 	// WebSocket never delivers events.
@@ -93,7 +90,7 @@ func (cc *ChainConfig) newRpc() error {
 		}
 		if msg, failed, syncing := tryUrl(endpoint.Url); failed {
 			endpoint.syncing = syncing
-			markDown(endpoint, msg)
+			endpoint.markDown(msg)
 			continue
 		}
 		return nil
@@ -109,7 +106,7 @@ func (cc *ChainConfig) newRpc() error {
 			}
 			if msg, failed, syncing := tryUrl(endpoint.Url); failed {
 				endpoint.syncing = syncing
-				markDown(endpoint, msg)
+				endpoint.markDown(msg)
 				continue
 			}
 			return nil
@@ -179,6 +176,9 @@ func (cc *ChainConfig) monitorHealth(ctx context.Context, chainName string) {
 			}
 			wg.Wait()
 			cc.sendHealthUpdate()
+			if !sleepContext(ctx, valInfoRefreshDelay) {
+				return
+			}
 
 			cc.mtx.RLock()
 			needsRpc = cc.client == nil
@@ -297,21 +297,14 @@ func (cc *ChainConfig) sendHealthUpdate() {
 	}
 }
 
-// refreshValInfo saves the current validator info and fetches updated data.
+// refreshValInfo saves the current validator info and fetches updated data, rotating away from a node that
+// returns unusable responses.
 func (cc *ChainConfig) refreshValInfo() {
 	if cc.valInfo != nil {
-		cc.lastValInfo = &ValInfo{
-			Moniker:    cc.valInfo.Moniker,
-			Bonded:     cc.valInfo.Bonded,
-			Jailed:     cc.valInfo.Jailed,
-			Tombstoned: cc.valInfo.Tombstoned,
-			Missed:     cc.valInfo.Missed,
-			Window:     cc.valInfo.Window,
-			Conspub:    cc.valInfo.Conspub,
-			Valcons:    cc.valInfo.Valcons,
-		}
+		previous := cc.snapshotValInfo()
+		cc.lastValInfo = &previous
 	}
-	err := cc.GetValInfo(false)
+	err := cc.getValInfoWithRotation(false)
 	if err != nil {
 		l("❓ refreshing signing info for", cc.ValAddress, err)
 	}

@@ -115,7 +115,7 @@ func Run(configFile, stateFile, chainConfigDirectory string, password *string) e
 					backoff = nextBackoff(backoff, maxBackoff)
 					continue
 				}
-				e = cc.GetValInfo(true)
+				e = cc.getValInfoWithRotation(true)
 				if e != nil {
 					l("🛑", cc.ChainId, e)
 				}
