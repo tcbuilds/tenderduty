@@ -241,12 +241,14 @@ func TestRefreshValInfoRotatesAwayFromRateLimitedNode(t *testing.T) {
 
 func TestGetValInfoWithRotationNoHealthyNode(t *testing.T) {
 	fixture := newRotationFixture(t, false)
+	limitedClient := fixture.cc.client
 	err := fixture.cc.getValInfoWithRotation(false)
-	if err == nil {
-		t.Fatal("getValInfoWithRotation() error = nil, want rotation failure")
+	assertError(t, err, errNoHealthyAlternative, "")
+	if fixture.limited.down {
+		t.Error("only node was marked down although there is nothing to rotate to")
 	}
-	if !fixture.limited.down {
-		t.Error("rate limited node was not marked down")
+	if fixture.cc.activeClient() != limitedClient || fixture.cc.noNodes {
+		t.Errorf("client replaced or chain flagged as having no nodes (noNodes %v)", fixture.cc.noNodes)
 	}
 	assertValInfo(t, *fixture.cc.valInfo, fixture.priorInfo)
 }
@@ -262,45 +264,92 @@ func TestGetValInfoWithRotationPassesThroughOtherErrors(t *testing.T) {
 	}
 }
 
+// rotationChainName is the chain name used by rotation tests that inspect the global alarm cache.
+const rotationChainName = "rotation-test"
+
+// rotateClientCase describes one rotateClient scenario starting from a rate limited active node.
+type rotateClientCase struct {
+	name            string
+	withHealthyNode bool
+	alternativeDown bool
+	swapBeforehand  bool
+	nilUsedClient   bool
+	wantErr         bool
+	wantErrIs       error
+	wantLimitedDown bool
+	wantHealthy     bool
+}
+
 func TestRotateClient(t *testing.T) {
-	tests := []struct {
-		name            string
-		swapBeforehand  bool
-		nilUsedClient   bool
-		wantErr         bool
-		wantLimitedDown bool
-		wantHealthy     bool
-	}{
-		{"active client rotates to healthy node", false, false, false, true, true},
-		{"client already swapped is retried, not marked down", true, false, false, false, true},
-		{"no used client", false, true, true, false, false},
+	tests := []rotateClientCase{
+		{name: "active client rotates to healthy node", withHealthyNode: true, wantLimitedDown: true, wantHealthy: true},
+		{name: "client already swapped is retried, not marked down", withHealthyNode: true, swapBeforehand: true, wantHealthy: true},
+		{name: "no used client", withHealthyNode: true, nilUsedClient: true, wantErr: true},
+		{name: "single node keeps current client", wantErr: true, wantErrIs: errNoHealthyAlternative},
+		{name: "only alternative is down", withHealthyNode: true, alternativeDown: true, wantErr: true,
+			wantErrIs: errNoHealthyAlternative},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fixture := newRotationFixture(t, true)
-			usedClient := fixture.cc.client
+			fixture := newRotationFixture(t, tt.withHealthyNode)
+			cc := fixture.cc
+			cc.name = rotationChainName
+			seedAlarm(t, rotationChainName)
+			usedClient := cc.client
 			if tt.nilUsedClient {
 				usedClient = nil
 			}
+			if tt.alternativeDown {
+				cc.Nodes[1].down = true
+			}
 			if tt.swapBeforehand {
-				fixture.cc.client = newTestClient(t, fixture.healthyURL)
+				cc.client = newTestClient(t, fixture.healthyURL)
 			}
-			swappedClient := fixture.cc.client
-			err := fixture.cc.rotateClient(usedClient, errRateLimited)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("rotateClient() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if fixture.limited.down != tt.wantLimitedDown {
-				t.Errorf("used node down = %v, want %v", fixture.limited.down, tt.wantLimitedDown)
-			}
-			if got := fixture.cc.client.Remote() == fixture.healthyURL; got != tt.wantHealthy {
-				t.Errorf("active client = %s, want healthy node %v", fixture.cc.client.Remote(), tt.wantHealthy)
-			}
-			if tt.swapBeforehand && (fixture.cc.client != swappedClient || fixture.cc.Nodes[1].down) {
-				t.Error("rotateClient replaced or marked down a client it did not use")
-			}
+			outcome := rotateOutcome{clientBefore: cc.client}
+			outcome.err = cc.rotateClient(usedClient, errRateLimited)
+			assertRotateClient(t, tt, fixture, outcome)
 		})
 	}
+}
+
+// rotateOutcome is the active client before a rotateClient call and the error the call returned.
+type rotateOutcome struct {
+	clientBefore *rpchttp.HTTP
+	err          error
+}
+
+func assertRotateClient(t *testing.T, tt rotateClientCase, fixture rotationFixture, outcome rotateOutcome) {
+	t.Helper()
+	cc, err := fixture.cc, outcome.err
+	if (err != nil) != tt.wantErr || (tt.wantErrIs != nil && !errors.Is(err, tt.wantErrIs)) {
+		t.Fatalf("rotateClient() error = %v, wantErr %v (%v)", err, tt.wantErr, tt.wantErrIs)
+	}
+	if fixture.limited.down != tt.wantLimitedDown {
+		t.Errorf("used node down = %v, want %v", fixture.limited.down, tt.wantLimitedDown)
+	}
+	if got := cc.client.Remote() == fixture.healthyURL; got != tt.wantHealthy {
+		t.Errorf("active client = %s, want healthy node %v", cc.client.Remote(), tt.wantHealthy)
+	}
+	if !tt.wantLimitedDown && cc.client != outcome.clientBefore {
+		t.Error("rotateClient replaced the client without rotating away from the used node")
+	}
+	if cc.noNodes || cc.lastError != "" || alarms.getCount(rotationChainName) == 0 {
+		t.Errorf("no-nodes handling ran: noNodes %v, lastError %q, alarms %d",
+			cc.noNodes, cc.lastError, alarms.getCount(rotationChainName))
+	}
+}
+
+// seedAlarm records an active alarm for chain so tests can detect alarms.clearAll.
+func seedAlarm(t *testing.T, chain string) {
+	t.Helper()
+	alarms.notifyMux.Lock()
+	alarms.AllAlarms[chain] = map[string]time.Time{"seeded alarm": time.Now()}
+	alarms.notifyMux.Unlock()
+	t.Cleanup(func() {
+		alarms.notifyMux.Lock()
+		delete(alarms.AllAlarms, chain)
+		alarms.notifyMux.Unlock()
+	})
 }
 
 // TestGetValInfoWithRotationClientSwappedDuringQuery has the run loop swap cc.client while the query to the rate

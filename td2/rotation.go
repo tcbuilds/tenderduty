@@ -41,6 +41,10 @@ func (cc *ChainConfig) activeClient() *rpchttp.HTTP {
 	return cc.client
 }
 
+// errNoHealthyAlternative is returned when a node returns unusable responses but no other node can replace it, in
+// which case the current client and the last known validator info are kept.
+var errNoHealthyAlternative = errors.New("no other healthy RPC node to rotate to")
+
 // markDown flags the node as down, recording when it first went down and why.
 func (node *NodeConfig) markDown(msg string) {
 	if !node.down {
@@ -75,13 +79,27 @@ func (cc *ChainConfig) rotateClient(usedClient *rpchttp.HTTP, cause error) error
 		l(fmt.Sprintf("🔀 %-12s RPC client already moved away from %s, retrying on the current node", cc.name, remote))
 		return nil
 	}
+	if !cc.hasHealthyAlternative(remote) {
+		return fmt.Errorf("keeping RPC client on %s: %w", remote, errNoHealthyAlternative)
+	}
 	cc.markNodeDown(remote, fmt.Sprintf("%-12s node %s is rate limited or returned a non JSON-RPC response", cc.name, remote))
 	l(fmt.Sprintf("🔀 %-12s rotating RPC client away from %s: %v", cc.name, remote, cause))
+	// selectUsableNode, not newRpc: if every alternative fails verification the current client still answers,
+	// so the chain must not be flagged as having no nodes nor have its alarms cleared.
 	if !cc.selectUsableNode() {
-		cc.reportNoNodes()
-		return fmt.Errorf("rotating RPC client away from %s: no usable endpoints available for %s", remote, cc.ChainId)
+		return fmt.Errorf("rotating RPC client away from %s: %w", remote, errNoHealthyAlternative)
 	}
 	return nil
+}
+
+// hasHealthyAlternative reports whether any configured node other than excludedURL is currently not marked down.
+func (cc *ChainConfig) hasHealthyAlternative(excludedURL string) bool {
+	for _, node := range cc.Nodes {
+		if node.Url != excludedURL && !node.down {
+			return true
+		}
+	}
+	return false
 }
 
 // getValInfoWithRotation fetches validator info and, when the queried node returns an unusable response, rotates
