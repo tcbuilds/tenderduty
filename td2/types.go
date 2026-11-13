@@ -83,8 +83,10 @@ type savedState struct {
 // ChainConfig represents a validator to be monitored on a chain, it is somewhat of a misnomer since multiple
 // validators can be monitored on a single chain.
 type ChainConfig struct {
-	// mtx protects concurrent access to client and noNodes from newRpc and monitorHealth, and guards
-	// replacement of the valInfo pointer by GetValInfo
+	// mtx protects client and noNodes, which newRpc, node rotation and monitorHealth access from different
+	// goroutines. GetValInfo also takes it while copying and replacing the valInfo pointer, but most valInfo
+	// readers (websocket handlers, alerts, dashboard and metrics updates) still read it without locking, so it
+	// does not yet make valInfo access race free.
 	mtx sync.RWMutex
 	// rpcSetupMtx serialises newRpc and node rotation so only one goroutine selects a client at a time. It is
 	// acquired before mtx or wsFailMtx and never while holding either of them.
