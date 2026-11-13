@@ -83,7 +83,8 @@ type savedState struct {
 // ChainConfig represents a validator to be monitored on a chain, it is somewhat of a misnomer since multiple
 // validators can be monitored on a single chain.
 type ChainConfig struct {
-	// mtx protects concurrent access to client and noNodes from newRpc and monitorHealth
+	// mtx protects concurrent access to client and noNodes from newRpc and monitorHealth, and guards
+	// replacement of the valInfo pointer by GetValInfo
 	mtx            sync.RWMutex
 	name           string
 	wsclient       *TmConn         // custom websocket client to work around wss:// bugs in tendermint
