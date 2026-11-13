@@ -19,9 +19,11 @@ const (
 )
 
 // isUnusableResponseError reports whether err means the node answered with something other than a JSON-RPC
-// response (rate limiting, proxy error pages). Retrying against the same node is unlikely to help.
+// response (rate limiting, proxy error pages). Retrying against the same node is unlikely to help. A well formed
+// ABCI answer (a non-zero code or an empty value) proves the node works, so it never counts, even when the
+// application's log text happens to contain one of the markers.
 func isUnusableResponseError(err error) bool {
-	if err == nil {
+	if err == nil || errors.Is(err, errABCIQueryFailed) || errors.Is(err, errEmptyABCIResponse) {
 		return false
 	}
 	var syntaxError *json.SyntaxError

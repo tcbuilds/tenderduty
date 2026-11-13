@@ -25,9 +25,11 @@ const testChainID = "test-1"
 const nginxRateLimitPage = "<html>\r\n<head><title>429 Too Many Requests</title></head>\r\n" +
 	"<body>\r\n<center><h1>429 Too Many Requests</h1></center>\r\n<hr><center>nginx</center>\r\n</body>\r\n</html>\r\n"
 
-// fakeTendermintNode answers the JSON-RPC "status" and "abci_query" methods from canned ABCI values.
+// fakeTendermintNode answers the JSON-RPC "status" and "abci_query" methods from canned ABCI values. Paths in
+// abciFailures are answered with that ABCI response instead, for example a non-zero application code.
 type fakeTendermintNode struct {
-	abciValues map[string][]byte
+	abciValues   map[string][]byte
+	abciFailures map[string]abci.ResponseQuery
 }
 
 func (node fakeTendermintNode) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -48,7 +50,11 @@ func (node fakeTendermintNode) ServeHTTP(writer http.ResponseWriter, request *ht
 			http.Error(writer, err.Error(), http.StatusBadRequest)
 			return
 		}
-		result = &ctypes.ResultABCIQuery{Response: abci.ResponseQuery{Value: node.abciValues[params.Path]}}
+		response, failed := node.abciFailures[params.Path]
+		if !failed {
+			response = abci.ResponseQuery{Value: node.abciValues[params.Path]}
+		}
+		result = &ctypes.ResultABCIQuery{Response: response}
 	default:
 		http.Error(writer, "unsupported method "+rpcRequest.Method, http.StatusBadRequest)
 		return
@@ -89,6 +95,8 @@ func TestIsUnusableResponseError(t *testing.T) {
 		{"too many requests", errors.New("429 Too Many Requests"), true},
 		{"deadline exceeded", fmt.Errorf("post failed: %w", context.DeadlineExceeded), false},
 		{"abci code error", fmt.Errorf("query: %w", errABCIQueryFailed), false},
+		{"abci code error with marker log", abciLogError(t, codeResult(1, "error unmarshalling: 429 too many requests")), false},
+		{"empty abci response with marker", fmt.Errorf("too many requests: %w", errEmptyABCIResponse), false},
 		{"connection refused", errors.New("post failed: dial tcp: connection refused"), false},
 	}
 	for _, tt := range tests {
@@ -98,6 +106,42 @@ func TestIsUnusableResponseError(t *testing.T) {
 			}
 		})
 	}
+}
+
+// abciLogError returns the error queryABCI produces for a canned ABCI answer.
+func abciLogError(t *testing.T, result fakeABCIResult) error {
+	t.Helper()
+	querier := &fakeABCIQuerier{results: map[string]fakeABCIResult{stakingValidatorPath: result}}
+	_, err := queryABCI(context.Background(), querier, stakingValidatorPath, nil)
+	if err == nil {
+		t.Fatal("queryABCI() error = nil, want an ABCI error")
+	}
+	return err
+}
+
+// TestGetValInfoWithRotationABCIErrorKeepsNode has a node answer with an application error whose log contains
+// the rate limit markers. The node answered with valid JSON-RPC, so it must not be marked down or rotated away.
+func TestGetValInfoWithRotationABCIErrorKeepsNode(t *testing.T) {
+	failing := httptest.NewServer(fakeTendermintNode{abciFailures: map[string]abci.ResponseQuery{
+		stakingValidatorPath: {Code: 5, Codespace: "staking", Log: "error unmarshalling request: too many requests"},
+	}})
+	t.Cleanup(failing.Close)
+	fixture := newRotationFixture(t, true)
+	cc := fixture.cc
+	failingNode := &NodeConfig{Url: failing.URL}
+	cc.Nodes = append([]*NodeConfig{failingNode}, cc.Nodes...)
+	failingClient := newTestClient(t, failing.URL)
+	cc.client = failingClient
+
+	err := cc.getValInfoWithRotation(false)
+	assertError(t, err, errABCIQueryFailed, "too many requests")
+	if failingNode.down {
+		t.Error("node answering with an ABCI application error was marked down")
+	}
+	if cc.activeClient() != failingClient {
+		t.Errorf("active client = %s, want it kept on %s", cc.activeClient().Remote(), failing.URL)
+	}
+	assertValInfo(t, *cc.valInfo, fixture.priorInfo)
 }
 
 func TestMarkNodeDown(t *testing.T) {
