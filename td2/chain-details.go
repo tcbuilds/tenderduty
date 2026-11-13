@@ -10,10 +10,12 @@ import (
 	"time"
 )
 
-// altValopers is used to get a bech32 prefix for chains using non-standard naming
+// altValopers is used to get a bech32 prefix for chains using non-standard naming. Keys are the valoper
+// address prefix (bech32 human readable part), values are the matching consensus address prefix.
 var altValopers = &valoperOverrides{
 	Prefixes: map[string]string{
-		"ival": "ica", // Iris hub
+		"ival":    "ica",         // Iris hub
+		"crocncl": "crocnclcons", // Crypto.org chain
 
 		// TODO: was told tgrade also has a custom prefix, but not sure what the pair is
 		// "tval": "tvalcons",
@@ -26,14 +28,17 @@ type valoperOverrides struct {
 	LastUpdated time.Time         `json:"last_updated"`
 }
 
+// getAltPrefix returns the consensus address prefix for a valoper address whose prefix is listed in the overrides.
 func (vo *valoperOverrides) getAltPrefix(oper string) (prefix string, ok bool) {
-	split := strings.Split(oper, "1")
-	if len(split) == 0 {
+	// the bech32 separator is the last "1", the data part's charset never contains it.
+	separator := strings.LastIndex(oper, "1")
+	if separator <= 0 {
 		return "", false
 	}
 	vo.RLock()
 	defer vo.RUnlock()
-	return altValopers.Prefixes[split[0]], altValopers.Prefixes[split[0]] != ""
+	prefix, ok = vo.Prefixes[oper[:separator]]
+	return prefix, ok && prefix != ""
 }
 
 // cosmosPaths holds a mapping useful for finding public nodes from the cosmos directory from eco_stake
