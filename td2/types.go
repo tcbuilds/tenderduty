@@ -86,12 +86,12 @@ type ChainConfig struct {
 	// mtx protects concurrent access to client and noNodes from newRpc and monitorHealth
 	mtx            sync.RWMutex
 	name           string
-	wsclient       *TmConn       // custom websocket client to work around wss:// bugs in tendermint
-	client         *rpchttp.HTTP // legit tendermint client
-	noNodes        bool          // tracks if all nodes are down
+	wsclient       *TmConn         // custom websocket client to work around wss:// bugs in tendermint
+	client         *rpchttp.HTTP   // legit tendermint client
+	noNodes        bool            // tracks if all nodes are down
 	failedWsUrls   map[string]bool // WebSocket URLs that failed, used for node rotation
-	valInfo        *ValInfo      // recent validator state, only refreshed every few minutes
-	lastValInfo    *ValInfo      // use for detecting newly-jailed/tombstone
+	valInfo        *ValInfo        // recent validator state, only refreshed every few minutes
+	lastValInfo    *ValInfo        // use for detecting newly-jailed/tombstone
 	blocksResults  []int
 	lastError      string
 	lastBlockTime  time.Time
