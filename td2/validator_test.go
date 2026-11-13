@@ -404,3 +404,15 @@ func TestSnapshotValInfoNil(t *testing.T) {
 		t.Errorf("snapshotValInfo() on nil = %+v, want zero value", got)
 	}
 }
+
+func TestUpdateValInfoUnknownPrefixKeepsPrior(t *testing.T) {
+	key := testEd25519Key()
+	client := &fakeABCIQuerier{results: map[string]fakeABCIResult{
+		stakingValidatorPath: okResult(validatorValue(t, "other", staking.Bonded, false, mustAny(t, key))),
+	}}
+	prior := knownGoodValInfo(key.Address(), "zzzcons1prior")
+	cc := &ChainConfig{ChainId: "test-1", ValAddress: "zzz1unknownprefix", valInfo: &prior}
+	err := cc.updateValInfo(context.Background(), client, false)
+	assertError(t, err, nil, "could not determine bech32 prefix")
+	assertValInfo(t, *cc.valInfo, knownGoodValInfo(key.Address(), "zzzcons1prior"))
+}
