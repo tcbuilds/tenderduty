@@ -2,8 +2,10 @@ package tenderduty
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -15,7 +17,10 @@ import (
 	"github.com/gogo/protobuf/proto"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmbytes "github.com/tendermint/tendermint/libs/bytes"
+	"github.com/tendermint/tendermint/p2p"
+	rpchttp "github.com/tendermint/tendermint/rpc/client/http"
 	ctypes "github.com/tendermint/tendermint/rpc/core/types"
+	rpctypes "github.com/tendermint/tendermint/rpc/jsonrpc/types"
 )
 
 // fakeABCIResult is the canned answer a fakeABCIQuerier returns for one query path.
@@ -149,4 +154,66 @@ func assertValInfo(t *testing.T, got, want ValInfo) {
 		got.Valcons != want.Valcons || string(got.Conspub) != string(want.Conspub) {
 		t.Errorf("valInfo = %+v, want %+v", got, want)
 	}
+}
+
+// testChainID is the chain id served by the fake tendermint nodes.
+const testChainID = "test-1"
+
+// nginxRateLimitPage is the body nginx serves with a 429 when limit_req rejects a request.
+const nginxRateLimitPage = "<html>\r\n<head><title>429 Too Many Requests</title></head>\r\n" +
+	"<body>\r\n<center><h1>429 Too Many Requests</h1></center>\r\n<hr><center>nginx</center>\r\n</body>\r\n</html>\r\n"
+
+// fakeTendermintNode answers the JSON-RPC "status" and "abci_query" methods from canned ABCI values. Paths in
+// abciFailures are answered with that ABCI response instead, for example a non-zero application code.
+type fakeTendermintNode struct {
+	abciValues   map[string][]byte
+	abciFailures map[string]abci.ResponseQuery
+}
+
+func (node fakeTendermintNode) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+	var rpcRequest rpctypes.RPCRequest
+	if err := json.NewDecoder(request.Body).Decode(&rpcRequest); err != nil {
+		http.Error(writer, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var result interface{}
+	switch rpcRequest.Method {
+	case "status":
+		result = &ctypes.ResultStatus{NodeInfo: p2p.DefaultNodeInfo{Network: testChainID}}
+	case "abci_query":
+		var params struct {
+			Path string `json:"path"`
+		}
+		if err := json.Unmarshal(rpcRequest.Params, &params); err != nil {
+			http.Error(writer, err.Error(), http.StatusBadRequest)
+			return
+		}
+		response, failed := node.abciFailures[params.Path]
+		if !failed {
+			response = abci.ResponseQuery{Value: node.abciValues[params.Path]}
+		}
+		result = &ctypes.ResultABCIQuery{Response: response}
+	default:
+		http.Error(writer, "unsupported method "+rpcRequest.Method, http.StatusBadRequest)
+		return
+	}
+	if err := json.NewEncoder(writer).Encode(rpctypes.NewRPCSuccessResponse(rpcRequest.ID, result)); err != nil {
+		http.Error(writer, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// rateLimitedNode always answers like an nginx proxy enforcing limit_req.
+func rateLimitedNode(writer http.ResponseWriter, _ *http.Request) {
+	writer.Header().Set("Content-Type", "text/html")
+	writer.WriteHeader(http.StatusTooManyRequests)
+	_, _ = writer.Write([]byte(nginxRateLimitPage)) // write errors only mean the test client went away
+}
+
+func newTestClient(t *testing.T, remote string) *rpchttp.HTTP {
+	t.Helper()
+	client, err := rpchttp.New(remote, "/websocket")
+	if err != nil {
+		t.Fatalf("creating rpc client for %s: %v", remote, err)
+	}
+	return client
 }
